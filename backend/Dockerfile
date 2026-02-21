@@ -12,6 +12,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
     libpq-dev \
     openssh-client \
+    gosu \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
@@ -22,14 +23,12 @@ COPY . .
 # Pre-built sing-box binary with v2ray_api for deployment to servers
 COPY --from=singbox-builder /go/bin/sing-box /app/sing-box-binary
 
-# Run as non-root user
+# Create non-root user; entrypoint runs as root then drops via gosu
 RUN addgroup --system --gid 1001 appgroup && \
     adduser --system --uid 1001 --ingroup appgroup appuser && \
     mkdir -p /app/ssh_keys /app/ssh_keys_mount && \
     chown -R appuser:appgroup /app && \
     chmod +x /app/entrypoint.sh
-
-USER appuser
 
 ENTRYPOINT ["/app/entrypoint.sh"]
 EXPOSE 8000
