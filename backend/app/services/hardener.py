@@ -38,7 +38,7 @@ async def harden_server(server_id: str) -> None:
             logger.info(f"[{server.name}] Already hardened, skipping")
             return
 
-        if server.status not in ("online", "error"):
+        if server.status not in ("online", "error", "provisioning"):
             logger.warning(f"[{server.name}] Status is {server.status}, skipping hardening")
             return
 
