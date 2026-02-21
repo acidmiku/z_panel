@@ -25,11 +25,13 @@ COPY --from=singbox-builder /go/bin/sing-box /app/sing-box-binary
 # Run as non-root user
 RUN addgroup --system --gid 1001 appgroup && \
     adduser --system --uid 1001 --ingroup appgroup appuser && \
-    mkdir -p /app/ssh_keys && \
-    chown -R appuser:appgroup /app
+    mkdir -p /app/ssh_keys /app/ssh_keys_mount && \
+    chown -R appuser:appgroup /app && \
+    chmod +x /app/entrypoint.sh
 
 USER appuser
 
+ENTRYPOINT ["/app/entrypoint.sh"]
 EXPOSE 8000
 
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

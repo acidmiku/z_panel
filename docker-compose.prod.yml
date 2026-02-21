@@ -48,7 +48,7 @@ services:
       ADMIN_PASSWORD: ${ADMIN_PASSWORD}
       SSH_KEYS_DIR: /app/ssh_keys
     volumes:
-      - ./ssh_keys:/app/ssh_keys:ro
+      - ./ssh_keys:/app/ssh_keys_mount:ro
     networks:
       - zpanel-net
     depends_on:
@@ -71,7 +71,7 @@ services:
       SSH_KEYS_DIR: /app/ssh_keys
       HEALTH_CHECK_INTERVAL: ${HEALTH_CHECK_INTERVAL:-60}
     volumes:
-      - ./ssh_keys:/app/ssh_keys:ro
+      - ./ssh_keys:/app/ssh_keys_mount:ro
     networks:
       - zpanel-net
     depends_on:

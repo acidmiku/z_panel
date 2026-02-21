@@ -26,13 +26,15 @@ async def task_health_checks(ctx):
 
 
 def _parse_redis_url(url: str) -> RedisSettings:
-    from urllib.parse import urlparse
+    from urllib.parse import urlparse, unquote
     parsed = urlparse(url)
+    # Support both redis://:password@host and redis://password@host (common mistake)
+    password = unquote(parsed.password) if parsed.password else (unquote(parsed.username) if parsed.username else None)
     return RedisSettings(
         host=parsed.hostname or "redis",
         port=parsed.port or 6379,
         database=int(parsed.path.lstrip("/") or "0"),
-        password=parsed.password,
+        password=password,
     )
 
 
