@@ -6,7 +6,7 @@ from datetime import datetime, timezone, timedelta
 
 from sqlalchemy import select, delete
 
-from app.models import Server, SSHKey, User, ServerTrafficSnapshot, ServerUserTraffic
+from app.models import Server, Jumphost, SSHKey, User, ServerTrafficSnapshot, ServerUserTraffic, JumphostTrafficSnapshot
 from app.services import ssh
 from app.database import AsyncSessionLocal
 
@@ -275,6 +275,148 @@ async def check_server_health(server_id: str) -> None:
         await db.commit()
 
 
+async def check_jumphost_health(jumphost_id: str) -> None:
+    """Health check for a jumphost — same pattern as check_server_health."""
+    async with AsyncSessionLocal() as db:
+        result = await db.execute(select(Jumphost).where(Jumphost.id == jumphost_id))
+        jumphost = result.scalar_one_or_none()
+        if not jumphost or jumphost.status == "provisioning":
+            return
+
+        ssh_result = await db.execute(
+            select(SSHKey).where(SSHKey.id == jumphost.ssh_key_id)
+        )
+        ssh_key = ssh_result.scalar_one_or_none()
+
+    host = jumphost.ip
+    port = jumphost.ssh_port
+    username = jumphost.ssh_user
+    key_path = ssh_key.private_key_path
+    hk = jumphost.host_key
+
+    new_status = "offline"
+    status_message = None
+    pinned_key = None
+
+    try:
+        if not hk:
+            conn, pinned_key = await ssh.connect_and_pin(host, port, username, key_path)
+            hk = pinned_key
+            async with conn:
+                result = await asyncio.wait_for(conn.run("systemctl is-active sing-box", check=False), timeout=15)
+                stdout = result.stdout or ""
+        else:
+            stdout, stderr, code = await ssh.run_command(
+                host, port, username, key_path,
+                "systemctl is-active sing-box",
+                timeout=15, known_host_key=hk,
+            )
+        if stdout.strip() == "active":
+            new_status = "online"
+        else:
+            new_status = "error"
+            try:
+                log_stdout, _, _ = await ssh.run_command(
+                    host, port, username, key_path,
+                    "journalctl -u sing-box --no-pager -n 20 --output=cat 2>/dev/null"
+                    " | grep -i -E 'fatal|error|fail'"
+                    " | grep -v 'did not closed properly'"
+                    " | tail -3",
+                    timeout=10, known_host_key=hk,
+                )
+                journal_errors = log_stdout.strip()
+            except Exception:
+                journal_errors = ""
+            status_message = journal_errors if journal_errors else f"sing-box not active: {stdout.strip()}"
+    except ConnectionError as e:
+        new_status = "offline"
+        status_message = str(e)[:500]
+    except Exception as e:
+        new_status = "error"
+        status_message = f"Health check error: {str(e)[:500]}"
+
+    # Collect stats if reachable
+    bytes_rx = bytes_tx = None
+    system_stats = None
+    user_traffic = {}
+    if new_status == "online":
+        try:
+            stdout, _, code = await ssh.run_command(
+                host, port, username, key_path,
+                "cat /proc/net/dev | awk '/eth0|ens|enp/ {gsub(/:/, \"\"); print $2, $10}' | head -1",
+                timeout=10, known_host_key=hk,
+            )
+            parts = stdout.strip().split()
+            if len(parts) == 2:
+                bytes_rx, bytes_tx = int(parts[0]), int(parts[1])
+        except Exception:
+            pass
+
+        system_stats = await _collect_system_stats(host, port, username, key_path, known_host_key=hk)
+        user_traffic = await _collect_user_traffic(host, port, username, key_path, known_host_key=hk)
+
+    async with AsyncSessionLocal() as db:
+        result = await db.execute(select(Jumphost).where(Jumphost.id == jumphost_id))
+        jh = result.scalar_one_or_none()
+        if not jh:
+            return
+
+        jh.status = new_status
+        jh.status_message = status_message
+        jh.last_health_check = datetime.now(timezone.utc)
+
+        if pinned_key and not jh.host_key:
+            jh.host_key = pinned_key
+
+        if system_stats:
+            jh.system_stats = system_stats
+
+        if bytes_rx is not None:
+            snapshot = JumphostTrafficSnapshot(
+                jumphost_id=jh.id,
+                bytes_rx=bytes_rx,
+                bytes_tx=bytes_tx,
+            )
+            db.add(snapshot)
+
+        # Process per-user traffic (same logic as servers)
+        if user_traffic:
+            prev_cache = jh.traffic_cache or {}
+            users_result = await db.execute(select(User))
+            users = list(users_result.scalars().all())
+            username_to_user = {u.username: u for u in users}
+
+            for uname, current in user_traffic.items():
+                user_obj = username_to_user.get(uname)
+                if not user_obj:
+                    continue
+
+                prev = prev_cache.get(uname, {})
+                prev_up = prev.get("up", 0)
+                prev_down = prev.get("down", 0)
+                curr_up = current["up"]
+                curr_down = current["down"]
+
+                delta_up = curr_up - prev_up if curr_up >= prev_up else curr_up
+                delta_down = curr_down - prev_down if curr_down >= prev_down else curr_down
+
+                if delta_up > 0 or delta_down > 0:
+                    user_obj.traffic_used_bytes += delta_up + delta_down
+
+            jh.traffic_cache = user_traffic
+
+        # Cleanup old snapshots
+        cutoff = datetime.now(timezone.utc) - timedelta(hours=24)
+        await db.execute(
+            delete(JumphostTrafficSnapshot).where(
+                JumphostTrafficSnapshot.jumphost_id == jumphost_id,
+                JumphostTrafficSnapshot.recorded_at < cutoff,
+            )
+        )
+
+        await db.commit()
+
+
 async def run_health_checks() -> None:
     async with AsyncSessionLocal() as db:
         result = await db.execute(
@@ -282,8 +424,19 @@ async def run_health_checks() -> None:
         )
         servers = list(result.scalars().all())
 
+        jh_result = await db.execute(
+            select(Jumphost).where(Jumphost.status != "provisioning")
+        )
+        jumphosts = list(jh_result.scalars().all())
+
     for server in servers:
         try:
             await check_server_health(str(server.id))
         except Exception as e:
-            logger.error(f"Health check error for {server.id}: {e}")
+            logger.error(f"Health check error for server {server.id}: {e}")
+
+    for jh in jumphosts:
+        try:
+            await check_jumphost_health(str(jh.id))
+        except Exception as e:
+            logger.error(f"Health check error for jumphost {jh.id}: {e}")

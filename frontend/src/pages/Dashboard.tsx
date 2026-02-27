@@ -1,19 +1,22 @@
 import { useServers } from '@/api/servers'
+import { useJumphosts } from '@/api/jumphosts'
 import { useStats } from '@/api/stats'
 import { formatBytes } from '@/lib/utils'
 import ServerCard from '@/components/ServerCard'
+import JumphostCard from '@/components/JumphostCard'
 import { useMaskIPs } from '@/hooks/useMaskIPs'
-import { Server as ServerIcon, Users, Activity, Wifi, Eye, EyeOff } from 'lucide-react'
+import { Server as ServerIcon, Users, Activity, Wifi, Network, Eye, EyeOff } from 'lucide-react'
 
 const statCards = [
   { key: 'servers', label: 'Servers', icon: ServerIcon },
+  { key: 'jumphosts', label: 'Jumphosts', icon: Network },
   { key: 'users', label: 'Users', icon: Users },
   { key: 'traffic', label: 'Traffic', icon: Activity },
-  { key: 'online', label: 'Online', icon: Wifi },
 ]
 
 export default function Dashboard() {
   const { data: servers, isLoading: serversLoading } = useServers()
+  const { data: jumphosts, isLoading: jumphostsLoading } = useJumphosts()
   const { data: stats, isLoading: statsLoading } = useStats()
   const { masked, toggle: toggleMask, mask } = useMaskIPs()
 
@@ -21,9 +24,9 @@ export default function Dashboard() {
     if (statsLoading) return '...'
     switch (key) {
       case 'servers': return stats?.total_servers ?? 0
+      case 'jumphosts': return stats?.total_jumphosts ?? 0
       case 'users': return stats?.total_users ?? 0
       case 'traffic': return formatBytes(stats?.total_traffic_bytes ?? 0)
-      case 'online': return `${stats?.online_servers ?? 0}/${stats?.total_servers ?? 0}`
       default: return 0
     }
   }
@@ -32,6 +35,7 @@ export default function Dashboard() {
     if (!stats) return null
     switch (key) {
       case 'servers': return <span className="text-emerald-400">{stats.online_servers ?? 0} online</span>
+      case 'jumphosts': return <span className="text-emerald-400">{stats.online_jumphosts ?? 0} online</span>
       case 'users': return <span className="text-emerald-400">{stats.active_users ?? 0} active</span>
       default: return null
     }
@@ -96,6 +100,24 @@ export default function Dashboard() {
           </div>
         )}
       </div>
+
+      {/* Jumphost Grid */}
+      {(jumphosts && jumphosts.length > 0) && (
+        <div>
+          <h3 className="text-lg font-semibold mb-4 tracking-tight">Jumphosts</h3>
+          {jumphostsLoading ? (
+            <p className="text-muted-foreground text-sm">Loading...</p>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {jumphosts.map((jh, i) => (
+                <div key={jh.id} className="animate-enter" style={{ animationDelay: `${(i + (servers?.length || 0) + 4) * 50}ms` }}>
+                  <JumphostCard jumphost={jh} mask={mask} />
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   )
 }

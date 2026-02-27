@@ -9,20 +9,106 @@ import random
 
 from sqlalchemy import select
 
-from app.models import Server, SSHKey
+from app.models import Server, Jumphost, SSHKey
 from app.services import ssh
 from app.database import AsyncSessionLocal
 
 logger = logging.getLogger(__name__)
 
 
-async def _set_progress(server_id: str, message: str) -> None:
+async def _set_server_progress(server_id: str, message: str) -> None:
     async with AsyncSessionLocal() as db:
         result = await db.execute(select(Server).where(Server.id == server_id))
         srv = result.scalar_one_or_none()
         if srv:
             srv.status_message = message
             await db.commit()
+
+
+async def _set_jumphost_progress(jumphost_id: str, message: str) -> None:
+    async with AsyncSessionLocal() as db:
+        result = await db.execute(select(Jumphost).where(Jumphost.id == jumphost_id))
+        jh = result.scalar_one_or_none()
+        if jh:
+            jh.status_message = message
+            await db.commit()
+
+
+async def _harden_common(
+    target_id: str,
+    name: str,
+    host: str,
+    port: int,
+    username: str,
+    key_path: str,
+    hk: str,
+    tcp_ports: list[int],
+    udp_ports: list[int],
+    set_progress,
+    model_class,
+) -> int:
+    """Shared hardening logic for servers and jumphosts.
+
+    Returns the active SSH port after hardening.
+    """
+    new_ssh_port = random.randint(10000, 60000)
+
+    logger.info(f"[{name}] Hardening step 1: Installing security packages")
+    await set_progress(target_id, "Hardening: installing packages…")
+    await _install_security_packages(host, port, username, key_path, hk)
+
+    logger.info(f"[{name}] Hardening step 2: Configuring automatic security updates")
+    await set_progress(target_id, "Hardening: auto-updates…")
+    await _configure_auto_updates(host, port, username, key_path, hk)
+
+    logger.info(f"[{name}] Hardening step 3: Applying kernel hardening")
+    await set_progress(target_id, "Hardening: kernel sysctl…")
+    await _configure_sysctl(host, port, username, key_path, hk)
+
+    logger.info(f"[{name}] Hardening step 4: Disabling unnecessary services")
+    await _disable_unnecessary_services(host, port, username, key_path, hk)
+
+    logger.info(f"[{name}] Hardening step 5: Hardening SSH auth (key-only, no password)")
+    await set_progress(target_id, "Hardening: SSH lockdown…")
+    await _harden_ssh_auth(host, port, username, key_path, hk)
+
+    # Attempt SSH port change
+    logger.info(f"[{name}] Hardening step 6: Attempting SSH port change to {new_ssh_port}")
+    await set_progress(target_id, "Hardening: SSH port change…")
+    active_ssh_port = await _try_ssh_port_change(
+        name, host, port, username, key_path, hk, new_ssh_port,
+    )
+
+    if active_ssh_port != port:
+        async with AsyncSessionLocal() as db:
+            result = await db.execute(select(model_class).where(model_class.id == target_id))
+            obj = result.scalar_one()
+            obj.ssh_port = active_ssh_port
+            await db.commit()
+
+    logger.info(f"[{name}] Hardening step 7: Configuring UFW (SSH port: {active_ssh_port})")
+    await set_progress(target_id, "Hardening: firewall…")
+    await _configure_ufw_generic(
+        host, active_ssh_port, username, key_path, hk,
+        ssh_port=active_ssh_port,
+        tcp_ports=tcp_ports,
+        udp_ports=udp_ports,
+    )
+
+    logger.info(f"[{name}] Hardening step 8: Configuring fail2ban")
+    await set_progress(target_id, "Hardening: fail2ban…")
+    await _configure_fail2ban(host, active_ssh_port, username, key_path, hk)
+
+    # Mark as hardened
+    async with AsyncSessionLocal() as db:
+        result = await db.execute(select(model_class).where(model_class.id == target_id))
+        obj = result.scalar_one()
+        obj.hardened = True
+        obj.status_message = None
+        await db.commit()
+
+    logger.info(f"[{name}] Hardening complete (SSH port: {active_ssh_port})")
+    return active_ssh_port
 
 
 async def harden_server(server_id: str) -> None:
@@ -48,7 +134,19 @@ async def harden_server(server_id: str) -> None:
         ssh_key = ssh_result.scalar_one_or_none()
 
     try:
-        await _do_harden(server_id, server, ssh_key)
+        await _harden_common(
+            target_id=server_id,
+            name=server.name,
+            host=server.ip,
+            port=server.ssh_port,
+            username=server.ssh_user,
+            key_path=ssh_key.private_key_path,
+            hk=server.host_key,
+            tcp_ports=[server.reality_port],
+            udp_ports=[server.hysteria2_port],
+            set_progress=_set_server_progress,
+            model_class=Server,
+        )
     except Exception as e:
         logger.exception(f"Hardening failed for server {server_id}: {e}")
         async with AsyncSessionLocal() as db:
@@ -59,72 +157,50 @@ async def harden_server(server_id: str) -> None:
                 await db.commit()
 
 
-async def _do_harden(server_id, server, ssh_key) -> None:
-    host = server.ip
-    port = server.ssh_port
-    username = server.ssh_user
-    key_path = ssh_key.private_key_path
-    hk = server.host_key
-    name = server.name
-
-    new_ssh_port = random.randint(10000, 60000)
-
-    logger.info(f"[{name}] Hardening step 1: Installing security packages")
-    await _set_progress(server_id, "Hardening: installing packages…")
-    await _install_security_packages(host, port, username, key_path, hk)
-
-    logger.info(f"[{name}] Hardening step 2: Configuring automatic security updates")
-    await _set_progress(server_id, "Hardening: auto-updates…")
-    await _configure_auto_updates(host, port, username, key_path, hk)
-
-    logger.info(f"[{name}] Hardening step 3: Applying kernel hardening")
-    await _set_progress(server_id, "Hardening: kernel sysctl…")
-    await _configure_sysctl(host, port, username, key_path, hk)
-
-    logger.info(f"[{name}] Hardening step 4: Disabling unnecessary services")
-    await _disable_unnecessary_services(host, port, username, key_path, hk)
-
-    logger.info(f"[{name}] Hardening step 5: Hardening SSH auth (key-only, no password)")
-    await _set_progress(server_id, "Hardening: SSH lockdown…")
-    await _harden_ssh_auth(host, port, username, key_path, hk)
-
-    # Attempt SSH port change — best-effort, cloud firewalls may block it
-    logger.info(f"[{name}] Hardening step 6: Attempting SSH port change to {new_ssh_port}")
-    await _set_progress(server_id, "Hardening: SSH port change…")
-    active_ssh_port = await _try_ssh_port_change(
-        name, host, port, username, key_path, hk, new_ssh_port,
-    )
-
-    if active_ssh_port != port:
-        # Port change succeeded — persist to DB
-        async with AsyncSessionLocal() as db:
-            result = await db.execute(select(Server).where(Server.id == server_id))
-            srv = result.scalar_one()
-            srv.ssh_port = active_ssh_port
-            await db.commit()
-
-    logger.info(f"[{name}] Hardening step 7: Configuring UFW (SSH port: {active_ssh_port})")
-    await _set_progress(server_id, "Hardening: firewall…")
-    await _configure_ufw(
-        host, active_ssh_port, username, key_path, hk,
-        ssh_port=active_ssh_port,
-        hysteria2_port=server.hysteria2_port,
-        reality_port=server.reality_port,
-    )
-
-    logger.info(f"[{name}] Hardening step 8: Configuring fail2ban")
-    await _set_progress(server_id, "Hardening: fail2ban…")
-    await _configure_fail2ban(host, active_ssh_port, username, key_path, hk)
-
-    # Mark as hardened
+async def harden_jumphost(jumphost_id: str) -> None:
+    """Harden a jumphost — same flow but opens SS port (TCP) instead of Hy2/Reality."""
     async with AsyncSessionLocal() as db:
-        result = await db.execute(select(Server).where(Server.id == server_id))
-        srv = result.scalar_one()
-        srv.hardened = True
-        srv.status_message = None
-        await db.commit()
+        result = await db.execute(select(Jumphost).where(Jumphost.id == jumphost_id))
+        jumphost = result.scalar_one_or_none()
+        if not jumphost:
+            logger.error(f"Jumphost {jumphost_id} not found")
+            return
 
-    logger.info(f"[{name}] Hardening complete (SSH port: {active_ssh_port})")
+        if jumphost.hardened:
+            logger.info(f"[{jumphost.name}] Already hardened, skipping")
+            return
+
+        if jumphost.status not in ("online", "error", "provisioning"):
+            logger.warning(f"[{jumphost.name}] Status is {jumphost.status}, skipping hardening")
+            return
+
+        ssh_result = await db.execute(
+            select(SSHKey).where(SSHKey.id == jumphost.ssh_key_id)
+        )
+        ssh_key = ssh_result.scalar_one_or_none()
+
+    try:
+        await _harden_common(
+            target_id=jumphost_id,
+            name=jumphost.name,
+            host=jumphost.ip,
+            port=jumphost.ssh_port,
+            username=jumphost.ssh_user,
+            key_path=ssh_key.private_key_path,
+            hk=jumphost.host_key,
+            tcp_ports=[jumphost.shadowsocks_port],
+            udp_ports=[jumphost.shadowsocks_port],
+            set_progress=_set_jumphost_progress,
+            model_class=Jumphost,
+        )
+    except Exception as e:
+        logger.exception(f"Hardening failed for jumphost {jumphost_id}: {e}")
+        async with AsyncSessionLocal() as db:
+            result = await db.execute(select(Jumphost).where(Jumphost.id == jumphost_id))
+            jh = result.scalar_one_or_none()
+            if jh:
+                jh.status_message = f"Hardening failed: {str(e)[:500]}"
+                await db.commit()
 
 
 async def _install_security_packages(host, port, username, key_path, hk) -> None:
@@ -305,17 +381,24 @@ async def _try_ssh_port_change(name, host, port, username, key_path, hk, new_ssh
     return port
 
 
-async def _configure_ufw(host, port, username, key_path, hk,
-                          ssh_port: int, hysteria2_port: int, reality_port: int) -> None:
-    ufw_script = (
-        "ufw --force reset > /dev/null 2>&1 && "
-        "ufw default deny incoming > /dev/null 2>&1 && "
-        "ufw default allow outgoing > /dev/null 2>&1 && "
-        f"ufw allow {ssh_port}/tcp comment 'SSH' > /dev/null 2>&1 && "
-        f"ufw allow {hysteria2_port}/udp comment 'Hysteria2' > /dev/null 2>&1 && "
-        f"ufw allow {reality_port}/tcp comment 'VLESS-Reality' > /dev/null 2>&1 && "
-        "ufw --force enable > /dev/null 2>&1"
-    )
+async def _configure_ufw_generic(host, port, username, key_path, hk,
+                                  ssh_port: int,
+                                  tcp_ports: list[int] | None = None,
+                                  udp_ports: list[int] | None = None) -> None:
+    """Configure UFW with the given SSH port and arbitrary TCP/UDP ports."""
+    parts = [
+        "ufw --force reset > /dev/null 2>&1",
+        "ufw default deny incoming > /dev/null 2>&1",
+        "ufw default allow outgoing > /dev/null 2>&1",
+        f"ufw allow {ssh_port}/tcp comment 'SSH' > /dev/null 2>&1",
+    ]
+    for p in (tcp_ports or []):
+        parts.append(f"ufw allow {p}/tcp > /dev/null 2>&1")
+    for p in (udp_ports or []):
+        parts.append(f"ufw allow {p}/udp > /dev/null 2>&1")
+    parts.append("ufw --force enable > /dev/null 2>&1")
+
+    ufw_script = " && ".join(parts)
     stdout, stderr, code = await ssh.run_command(
         host, port, username, key_path,
         ufw_script,
@@ -323,6 +406,17 @@ async def _configure_ufw(host, port, username, key_path, hk,
     )
     if code != 0:
         raise RuntimeError(f"UFW configuration failed: {stderr[:300]}")
+
+
+async def _configure_ufw(host, port, username, key_path, hk,
+                          ssh_port: int, hysteria2_port: int, reality_port: int) -> None:
+    """Legacy wrapper for server hardening."""
+    await _configure_ufw_generic(
+        host, port, username, key_path, hk,
+        ssh_port=ssh_port,
+        tcp_ports=[reality_port],
+        udp_ports=[hysteria2_port],
+    )
 
 
 async def _configure_fail2ban(host, port, username, key_path, hk) -> None:

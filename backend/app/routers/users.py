@@ -9,7 +9,7 @@ from typing import List
 from arq.connections import create_pool
 
 from app.database import get_db
-from app.models import User, Server, ServerUserTraffic, AdminUser
+from app.models import User, Server, Jumphost, ServerUserTraffic, AdminUser
 from app.schemas import UserCreate, UserUpdate, UserResponse, UserDetailResponse
 from app.deps import get_current_user
 from app.config import settings
@@ -23,13 +23,19 @@ async def _get_arq_pool():
 
 
 async def _push_to_all_servers(db: AsyncSession):
-    """Enqueue config push for all online servers."""
+    """Enqueue config push for all online servers and jumphosts."""
     result = await db.execute(select(Server).where(Server.status.in_(["online", "error"])))
     servers = list(result.scalars().all())
-    if servers:
+
+    jh_result = await db.execute(select(Jumphost).where(Jumphost.status.in_(["online", "error"])))
+    jumphosts = list(jh_result.scalars().all())
+
+    if servers or jumphosts:
         pool = await _get_arq_pool()
         for srv in servers:
             await pool.enqueue_job("task_push_config", str(srv.id))
+        for jh in jumphosts:
+            await pool.enqueue_job("task_push_jumphost_config", str(jh.id))
         await pool.close()
 
 
@@ -151,11 +157,14 @@ async def delete_user(
     await db.delete(user)
     await db.commit()
 
-    # Push updated configs
+    # Push updated configs to servers and jumphosts
     pool = await _get_arq_pool()
     srv_result = await db.execute(select(Server).where(Server.status.in_(["online", "error"])))
     for srv in srv_result.scalars().all():
         await pool.enqueue_job("task_push_config", str(srv.id))
+    jh_result = await db.execute(select(Jumphost).where(Jumphost.status.in_(["online", "error"])))
+    for jh in jh_result.scalars().all():
+        await pool.enqueue_job("task_push_jumphost_config", str(jh.id))
     await pool.close()
 
     return {"message": "User deleted"}

@@ -195,6 +195,8 @@ class TrafficRecord(BaseModel):
 class StatsResponse(BaseModel):
     total_servers: int
     online_servers: int
+    total_jumphosts: int = 0
+    online_jumphosts: int = 0
     total_users: int
     active_users: int
     total_traffic_bytes: int
@@ -204,3 +206,105 @@ class StatsResponse(BaseModel):
 class PasswordChangeRequest(BaseModel):
     current_password: str
     new_password: str
+
+
+# Jumphosts
+class JumphostCreate(BaseModel):
+    name: str = Field(..., min_length=1, max_length=255)
+    ip: str
+    ssh_port: int = Field(default=22, ge=1, le=65535)
+    ssh_user: str = Field(default="root", min_length=1, max_length=255)
+    ssh_key_id: uuid.UUID
+
+    @field_validator("ip")
+    @classmethod
+    def validate_ip(cls, v: str) -> str:
+        return _validate_ip(v)
+
+
+class JumphostUpdate(BaseModel):
+    name: Optional[str] = Field(default=None, max_length=255)
+    ip: Optional[str] = None
+    ssh_port: Optional[int] = Field(default=None, ge=1, le=65535)
+    ssh_user: Optional[str] = Field(default=None, max_length=255)
+    ssh_key_id: Optional[uuid.UUID] = None
+
+    @field_validator("ip")
+    @classmethod
+    def validate_ip(cls, v: str | None) -> str | None:
+        if v is not None:
+            return _validate_ip(v)
+        return v
+
+
+class JumphostResponse(BaseModel):
+    id: uuid.UUID
+    name: str
+    ip: str
+    ssh_port: int
+    ssh_user: str
+    ssh_key_id: uuid.UUID
+    shadowsocks_port: Optional[int] = None
+    shadowsocks_method: str = "2022-blake3-aes-128-gcm"
+    hardened: bool = False
+    status: str
+    status_message: Optional[str] = None
+    last_health_check: Optional[datetime] = None
+    sing_box_version: Optional[str] = None
+    system_stats: Optional[dict[str, Any]] = None
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+# Routing Rules
+class RoutingRuleCreate(BaseModel):
+    domain_pattern: str = Field(..., min_length=1, max_length=500)
+    match_type: str = Field(default="domain-suffix", pattern=r"^(domain|domain-suffix|domain-keyword|domain-regex)$")
+    action: str = Field(default="proxy", pattern=r"^(proxy|direct)$")
+    order: int = 0
+
+
+class RoutingRuleUpdate(BaseModel):
+    domain_pattern: Optional[str] = Field(default=None, max_length=500)
+    match_type: Optional[str] = Field(default=None, pattern=r"^(domain|domain-suffix|domain-keyword|domain-regex)$")
+    action: Optional[str] = Field(default=None, pattern=r"^(proxy|direct)$")
+    order: Optional[int] = None
+
+
+class RoutingRuleResponse(BaseModel):
+    id: uuid.UUID
+    user_id: Optional[uuid.UUID] = None
+    domain_pattern: str
+    match_type: str
+    action: str
+    order: int
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class GeoRuleEntry(BaseModel):
+    id: str
+    action: str = Field(default="DIRECT", pattern=r"^(DIRECT|Proxy|REJECT)$")
+
+
+class UserRoutingConfigUpsert(BaseModel):
+    geo_rules: Optional[List[GeoRuleEntry]] = None
+    jumphost_id: Optional[uuid.UUID] = None
+    jumphost_protocol: str = Field(default="ss", pattern=r"^(ss|ssh)$")
+
+
+class UserRoutingConfigResponse(BaseModel):
+    id: uuid.UUID
+    user_id: uuid.UUID
+    geo_rules: Optional[List[dict]] = None
+    jumphost_id: Optional[uuid.UUID] = None
+    jumphost_protocol: str = "ss"
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True

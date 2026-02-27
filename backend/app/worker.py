@@ -6,6 +6,8 @@ from arq.cron import cron
 from app.config import settings
 from app.services.provisioner import provision_server
 from app.services.config_pusher import push_config_to_server
+from app.services.jumphost_provisioner import provision_jumphost
+from app.services.jumphost_config_pusher import push_config_to_jumphost
 from app.services.health import run_health_checks
 logger = logging.getLogger(__name__)
 
@@ -18,6 +20,16 @@ async def task_provision_server(ctx, server_id: str):
 async def task_push_config(ctx, server_id: str):
     logger.info(f"Starting config push task for server {server_id}")
     await push_config_to_server(server_id)
+
+
+async def task_provision_jumphost(ctx, jumphost_id: str):
+    logger.info(f"Starting provisioning task for jumphost {jumphost_id}")
+    await provision_jumphost(jumphost_id)
+
+
+async def task_push_jumphost_config(ctx, jumphost_id: str):
+    logger.info(f"Starting config push task for jumphost {jumphost_id}")
+    await push_config_to_jumphost(jumphost_id)
 
 
 async def task_health_checks(ctx):
@@ -39,7 +51,7 @@ def _parse_redis_url(url: str) -> RedisSettings:
 
 
 class WorkerSettings:
-    functions = [task_provision_server, task_push_config, task_health_checks]
+    functions = [task_provision_server, task_push_config, task_provision_jumphost, task_push_jumphost_config, task_health_checks]
     cron_jobs = [
         cron(task_health_checks, second={0}, timeout=120),
     ]

@@ -1,13 +1,14 @@
 import { Outlet, Link, useLocation } from 'react-router-dom'
 import { useAuth } from '@/hooks/useAuth'
 import { useTheme } from '@/hooks/useTheme'
-import { LayoutDashboard, Server, Users, Settings, Sun, Moon, LogOut } from 'lucide-react'
+import { LayoutDashboard, Server, Users, Settings, Sun, Moon, LogOut, Network } from 'lucide-react'
 
 const navGroups = [
   {
     items: [
       { path: '/', label: 'Dashboard', icon: LayoutDashboard },
       { path: '/servers', label: 'Servers', icon: Server },
+      { path: '/jumphosts', label: 'Jumphosts', icon: Network },
       { path: '/users', label: 'Users', icon: Users },
     ],
   },

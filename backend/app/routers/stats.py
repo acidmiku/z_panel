@@ -6,7 +6,7 @@ from sqlalchemy import select, func
 from typing import Optional, List
 
 from app.database import get_db
-from app.models import Server, User, ServerUserTraffic, AdminUser
+from app.models import Server, Jumphost, User, ServerUserTraffic, AdminUser
 from app.schemas import StatsResponse, TrafficRecord
 from app.deps import get_current_user
 
@@ -26,6 +26,14 @@ async def get_summary(
     )
     online_servers = online_result.scalar() or 0
 
+    jh_result = await db.execute(select(func.count(Jumphost.id)))
+    total_jumphosts = jh_result.scalar() or 0
+
+    jh_online_result = await db.execute(
+        select(func.count(Jumphost.id)).where(Jumphost.status == "online")
+    )
+    online_jumphosts = jh_online_result.scalar() or 0
+
     usr_result = await db.execute(select(func.count(User.id)))
     total_users = usr_result.scalar() or 0
 
@@ -42,6 +50,8 @@ async def get_summary(
     return StatsResponse(
         total_servers=total_servers,
         online_servers=online_servers,
+        total_jumphosts=total_jumphosts,
+        online_jumphosts=online_jumphosts,
         total_users=total_users,
         active_users=active_users,
         total_traffic_bytes=total_traffic,

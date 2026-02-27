@@ -3,7 +3,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.routers import auth, servers, users, profiles, stats, cloudflare_configs, ssh_keys
+from app.routers import auth, servers, users, profiles, stats, cloudflare_configs, ssh_keys, jumphosts, routing
 
 
 @asynccontextmanager
@@ -30,6 +30,8 @@ app.include_router(profiles.router, prefix="/api/profiles", tags=["profiles"])
 app.include_router(stats.router, prefix="/api/stats", tags=["stats"])
 app.include_router(cloudflare_configs.router, prefix="/api/cloudflare-configs", tags=["cloudflare"])
 app.include_router(ssh_keys.router, prefix="/api/ssh-keys", tags=["ssh-keys"])
+app.include_router(jumphosts.router, prefix="/api/jumphosts", tags=["jumphosts"])
+app.include_router(routing.router, prefix="/api/routing", tags=["routing"])
 
 
 @app.get("/api/health")

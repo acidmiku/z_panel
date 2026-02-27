@@ -4,6 +4,8 @@ import api from './client'
 export interface Stats {
   total_servers: number
   online_servers: number
+  total_jumphosts: number
+  online_jumphosts: number
   total_users: number
   active_users: number
   total_traffic_bytes: number

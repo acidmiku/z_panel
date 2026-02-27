@@ -10,6 +10,11 @@ from sqlalchemy.orm import relationship
 from app.database import Base
 
 
+# ---------------------------------------------------------------------------
+# Admin
+# ---------------------------------------------------------------------------
+
+
 class AdminUser(Base):
     __tablename__ = "admin_users"
 
@@ -42,6 +47,7 @@ class SSHKey(Base):
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
     servers = relationship("Server", back_populates="ssh_key")
+    jumphosts = relationship("Jumphost", back_populates="ssh_key")
 
 
 class Server(Base):
@@ -96,6 +102,8 @@ class User(Base):
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
     traffic_records = relationship("ServerUserTraffic", back_populates="user", cascade="all, delete-orphan")
+    routing_rules = relationship("RoutingRule", back_populates="user", cascade="all, delete-orphan")
+    routing_config = relationship("UserRoutingConfig", back_populates="user", uselist=False, cascade="all, delete-orphan")
 
 
 class ServerUserTraffic(Base):
@@ -130,3 +138,83 @@ class ServerTrafficSnapshot(Base):
     )
 
     server = relationship("Server", back_populates="traffic_snapshots")
+
+
+# ---------------------------------------------------------------------------
+# Jumphosts
+# ---------------------------------------------------------------------------
+
+class Jumphost(Base):
+    __tablename__ = "jumphosts"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    name = Column(String(255), nullable=False)
+    ip = Column(String(45), nullable=False)
+    ssh_port = Column(Integer, default=22)
+    ssh_user = Column(String(255), default="root")
+    ssh_key_id = Column(UUID(as_uuid=True), ForeignKey("ssh_keys.id"), nullable=False)
+    host_key = Column(Text, nullable=True)
+    shadowsocks_port = Column(Integer, nullable=True)
+    shadowsocks_method = Column(String(100), default="2022-blake3-aes-128-gcm")
+    shadowsocks_server_key = Column(Text, nullable=True)  # encrypted, 16-byte PSK base64
+    tunnel_private_key = Column(Text, nullable=True)  # encrypted, ed25519 PEM for SSH tunnel
+    status = Column(String(20), default="provisioning")
+    status_message = Column(Text, nullable=True)
+    hardened = Column(Boolean, default=False)
+    last_health_check = Column(DateTime(timezone=True), nullable=True)
+    sing_box_version = Column(String(50), nullable=True)
+    system_stats = Column(JSON, nullable=True)
+    traffic_cache = Column(JSON, nullable=True)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+    ssh_key = relationship("SSHKey", back_populates="jumphosts")
+    traffic_snapshots = relationship("JumphostTrafficSnapshot", back_populates="jumphost", cascade="all, delete-orphan")
+
+
+class JumphostTrafficSnapshot(Base):
+    __tablename__ = "jumphost_traffic_snapshots"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    jumphost_id = Column(UUID(as_uuid=True), ForeignKey("jumphosts.id", ondelete="CASCADE"), nullable=False)
+    bytes_rx = Column(BigInteger, default=0)
+    bytes_tx = Column(BigInteger, default=0)
+    recorded_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+    __table_args__ = (
+        Index("ix_jh_traffic_snapshots_jh_time", "jumphost_id", "recorded_at"),
+    )
+
+    jumphost = relationship("Jumphost", back_populates="traffic_snapshots")
+
+
+# ---------------------------------------------------------------------------
+# Routing Rules
+# ---------------------------------------------------------------------------
+
+class RoutingRule(Base):
+    __tablename__ = "routing_rules"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=True)
+    domain_pattern = Column(String(500), nullable=False)
+    match_type = Column(String(30), nullable=False, default="domain-suffix")  # domain/domain-suffix/domain-keyword/domain-regex
+    action = Column(String(10), nullable=False, default="proxy")  # proxy/direct
+    order = Column(Integer, default=0)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+    user = relationship("User", back_populates="routing_rules")
+
+
+class UserRoutingConfig(Base):
+    __tablename__ = "user_routing_configs"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, unique=True)
+    geo_rules = Column(JSON, nullable=True)  # list of enabled geo rule IDs
+    jumphost_id = Column(UUID(as_uuid=True), ForeignKey("jumphosts.id", ondelete="SET NULL"), nullable=True)
+    jumphost_protocol = Column(String(10), default="ss")  # "ss" or "ssh"
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+
+    user = relationship("User", back_populates="routing_config")
+    jumphost = relationship("Jumphost")

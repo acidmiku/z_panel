@@ -5,7 +5,7 @@ import { useServers, type Server } from '@/api/servers'
 import TrafficBar from '@/components/TrafficBar'
 import ConfirmDialog from '@/components/ConfirmDialog'
 import { toast } from '@/components/Toaster'
-import { UserPlus, ChevronRight, Pencil, Trash2, ExternalLink, Users as UsersIcon } from 'lucide-react'
+import { UserPlus, ChevronRight, Pencil, Trash2, ExternalLink, Route, Users as UsersIcon } from 'lucide-react'
 
 function formatBytes(b: number) {
   if (b < 1024) return `${b} B`
@@ -263,6 +263,10 @@ export default function Users() {
                         <Link to={`/profiles/${u.id}`} className="text-xs px-2.5 py-1 rounded-md border border-primary/30 text-primary hover:bg-primary/10 transition-all inline-flex items-center gap-1">
                           <ExternalLink className="w-3 h-3" />
                           Profile
+                        </Link>
+                        <Link to={`/routing/${u.id}`} className="text-xs px-2.5 py-1 rounded-md border border-violet-500/30 text-violet-400 hover:bg-violet-500/10 transition-all inline-flex items-center gap-1">
+                          <Route className="w-3 h-3" />
+                          Routing
                         </Link>
                         <button onClick={() => setDeleteId(u.id)} className="text-xs px-2.5 py-1 rounded-md border border-red-600/40 text-red-400 hover:bg-red-500/10 transition-all inline-flex items-center gap-1">
                           <Trash2 className="w-3 h-3" />

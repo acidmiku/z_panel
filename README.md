@@ -17,7 +17,9 @@ Provision VPS servers over SSH, manage users with traffic limits and expiry, gen
 - **Subscription URLs** -- Each user gets a token-based subscription URL compatible with Clash Meta and v2rayN/v2rayNG clients
 - **Cloudflare DNS integration** -- Automatically creates DNS A records for Hysteria2 ACME certificate issuance
 - **Health monitoring** -- Periodic SSH checks (every 60s) with system stats: uptime, load, RAM, disk usage, and network I/O sparklines
-- **Config auto-push** -- User or server changes automatically regenerate and push sing-box configs to all online servers
+- **Jumphosts** -- First-hop Shadowsocks 2022 relay servers with full provisioning and hardening. Per-user proxy chaining via Clash Meta `dialer-proxy`
+- **Per-user routing** -- Custom domain rules and MetaCubeX geo rule-providers with selectable actions (DIRECT/Proxy/REJECT) per user
+- **Config auto-push** -- User or server changes automatically regenerate and push sing-box configs to all online servers and jumphosts
 - **SSH host key pinning** -- Trust-on-first-use (TOFU) model prevents MITM attacks on subsequent connections
 - **Production deployment** -- Caddy reverse proxy with automatic HTTPS and HTTP/3
 
@@ -277,6 +279,19 @@ All endpoints except login and subscription require `Authorization: Bearer <toke
 | GET | `/api/servers/{id}/logs` | Fetch sing-box journal logs |
 | GET | `/api/servers/{id}/traffic-history` | Network I/O rate history |
 
+### Jumphosts
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/jumphosts` | List all jumphosts |
+| POST | `/api/jumphosts` | Add and provision a jumphost |
+| GET | `/api/jumphosts/{id}` | Jumphost details |
+| PATCH | `/api/jumphosts/{id}` | Update jumphost settings |
+| DELETE | `/api/jumphosts/{id}` | Stop sing-box, delete |
+| POST | `/api/jumphosts/{id}/sync` | Force config re-push |
+| POST | `/api/jumphosts/{id}/reinstall` | Full re-provisioning |
+| GET | `/api/jumphosts/{id}/logs` | Fetch sing-box journal logs |
+| GET | `/api/jumphosts/{id}/traffic-history` | Network I/O rate history |
+
 ### Users
 | Method | Endpoint | Description |
 |--------|----------|-------------|
@@ -285,6 +300,17 @@ All endpoints except login and subscription require `Authorization: Bearer <toke
 | GET | `/api/users/{id}` | User details with per-server traffic |
 | PATCH | `/api/users/{id}` | Update user settings |
 | DELETE | `/api/users/{id}` | Delete user, push configs |
+
+### Routing
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/routing/rules/{user_id}` | Get rules (user-specific + global) |
+| POST | `/api/routing/rules/{user_id}` | Add a routing rule |
+| PUT | `/api/routing/rules/{rule_id}` | Update a rule |
+| DELETE | `/api/routing/rules/{rule_id}` | Delete a rule |
+| GET | `/api/routing/config/{user_id}` | Get user's routing config |
+| PUT | `/api/routing/config/{user_id}` | Upsert routing config |
+| GET | `/api/routing/geo-options` | Available geo rule providers |
 
 ### Profiles (Subscriptions)
 | Method | Endpoint | Description |
@@ -340,12 +366,12 @@ vpn-panel/
 │   ├── Dockerfile
 │   ├── requirements.txt
 │   ├── alembic.ini
-│   ├── alembic/versions/           # 001-007 migrations
+│   ├── alembic/versions/           # 001-008 migrations
 │   └── app/
 │       ├── main.py                 # FastAPI app, CORS config
 │       ├── config.py               # pydantic-settings
 │       ├── database.py             # Async SQLAlchemy engine
-│       ├── models.py               # ORM models (7 tables)
+│       ├── models.py               # ORM models (11 tables)
 │       ├── schemas.py              # Pydantic schemas with validation
 │       ├── auth.py                 # JWT + bcrypt
 │       ├── deps.py                 # FastAPI dependencies
@@ -354,9 +380,12 @@ vpn-panel/
 │       ├── routers/                # API route handlers
 │       └── services/
 │           ├── ssh.py              # asyncssh with host key pinning
-│           ├── provisioner.py      # Full provisioning pipeline
-│           ├── hardener.py         # VPS hardening (post-provision)
-│           ├── config_pusher.py    # Config regeneration + push
+│           ├── provisioner.py      # Server provisioning pipeline
+│           ├── jumphost_provisioner.py  # Jumphost provisioning pipeline
+│           ├── hardener.py         # VPS hardening (servers + jumphosts)
+│           ├── config_pusher.py    # Server config regeneration + push
+│           ├── jumphost_config_pusher.py # Jumphost config push
+│           ├── jumphost_singbox_config.py # Jumphost sing-box config generator
 │           ├── singbox_config.py   # sing-box JSON generator
 │           ├── clash_config.py     # Clash Meta YAML generator
 │           ├── cloudflare.py       # Cloudflare DNS API client
@@ -433,6 +462,20 @@ curl http://localhost:3000/api/health
 docker compose exec api alembic upgrade head
 docker compose exec api alembic current
 ```
+
+---
+
+## Changelog
+
+### 2026-02-27 — Jumphosts & Per-User Routing
+
+- **Jumphosts**: First-hop relay servers running Shadowsocks 2022 (`2022-blake3-aes-128-gcm`) with per-user key derivation. Full provisioning pipeline (SSH, sing-box, hardening) same as regular servers. SSH tunnel protocol as an alternative to SS.
+- **Proxy chaining**: Configure a jumphost per user — Clash Meta configs auto-inject the SS/SSH proxy with `dialer-proxy` on all VPN proxies. Subscription URLs unchanged; routing prefs resolved at fetch time.
+- **Per-user routing rules**: Custom domain rules (domain, domain-suffix, domain-keyword, domain-regex) with proxy/direct action, stored per-user and injected into subscriptions.
+- **Geo rule providers**: MetaCubeX classical rulesets (GeoIP Russia, GeoIP China, Telegram, YouTube, OpenAI, Netflix, Ads, etc.) with per-ruleset action selector (DIRECT / Proxy / REJECT).
+- **Jumphost health monitoring**: Same SSH + v2ray stats health checks as servers, with per-user SS traffic tracking and dashboard cards.
+- **Dashboard**: Jumphost stat card and grid section alongside servers.
+- **API**: New `/api/jumphosts` (full CRUD + sync/reinstall/logs) and `/api/routing` (rules CRUD, config upsert, geo options) endpoints.
 
 ---
 

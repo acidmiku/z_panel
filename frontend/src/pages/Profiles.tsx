@@ -1,15 +1,19 @@
 import { useState } from 'react'
-import { useParams } from 'react-router-dom'
+import { useParams, Link } from 'react-router-dom'
 import { useUser } from '@/api/users'
 import { useServers } from '@/api/servers'
+import { useRoutingConfig } from '@/api/routing'
+import { useJumphosts } from '@/api/jumphosts'
 import { downloadClashProfile } from '@/api/profiles'
 import { toast } from '@/components/Toaster'
-import { Copy, Download, Link2, Fingerprint } from 'lucide-react'
+import { Copy, Download, Link2, Fingerprint, Route } from 'lucide-react'
 
 export default function Profiles() {
   const { userId } = useParams<{ userId: string }>()
   const { data: user, isLoading: userLoading } = useUser(userId || '')
   const { data: servers } = useServers()
+  const { data: routingConfig } = useRoutingConfig(userId || '')
+  const { data: jumphosts } = useJumphosts()
   const [strategy, setStrategy] = useState('url-test')
   const [selectedServers, setSelectedServers] = useState<string[]>([])
   const [selectAll, setSelectAll] = useState(true)
@@ -66,6 +70,38 @@ export default function Profiles() {
           <span className="text-xs font-medium text-muted-foreground tracking-wide">Hysteria2 Password</span>
           <code className="text-xs font-mono bg-secondary/50 px-2 py-1 rounded">{user.hysteria2_password}</code>
         </div>
+      </div>
+
+      {/* Routing Summary */}
+      <div className="glass rounded-lg p-5 space-y-3">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2.5">
+            <Route className="w-4 h-4 text-violet-400/60" />
+            <span className="text-sm font-semibold">Routing</span>
+          </div>
+          <Link to={`/routing/${userId}`} className="text-xs text-primary hover:underline">Configure</Link>
+        </div>
+        {routingConfig ? (
+          <div className="space-y-2 text-xs text-muted-foreground">
+            <div className="flex items-center justify-between">
+              <span>Jumphost</span>
+              <span className="font-medium text-foreground">
+                {routingConfig.jumphost_id
+                  ? jumphosts?.find(j => j.id === routingConfig.jumphost_id)?.name || 'Unknown'
+                  : 'None'}
+                {routingConfig.jumphost_id && ` (${routingConfig.jumphost_protocol.toUpperCase()})`}
+              </span>
+            </div>
+            {routingConfig.geo_rules && routingConfig.geo_rules.length > 0 && (
+              <div className="flex items-center justify-between">
+                <span>Geo rules</span>
+                <span className="font-medium text-foreground">{routingConfig.geo_rules.length} active</span>
+              </div>
+            )}
+          </div>
+        ) : (
+          <p className="text-xs text-muted-foreground">No routing config set. <Link to={`/routing/${userId}`} className="text-primary hover:underline">Set up routing</Link></p>
+        )}
       </div>
 
       {/* Subscription URLs */}

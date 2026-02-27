@@ -1,5 +1,6 @@
 """Profiles router - generate Clash Meta and v2rayN configs."""
 import base64
+import hashlib
 from datetime import datetime, timezone
 from urllib.parse import quote
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -9,12 +10,47 @@ from sqlalchemy import select
 from typing import Optional
 
 from app.database import get_db
-from app.models import User, Server, AdminUser
+from app.models import User, Server, Jumphost, RoutingRule, UserRoutingConfig, AdminUser
 from app.deps import get_current_user
 from app.services.clash_config import generate_clash_config
 from app.services.singbox_config import is_user_active
+from app.services.crypto import decrypt
 
 router = APIRouter()
+
+
+async def _load_routing_context(db, user_id):
+    """Load jumphost, routing rules, and geo rules for a user."""
+    jumphost = None
+    jumphost_protocol = None
+    routing_rules = None
+    geo_rules = None
+
+    config_result = await db.execute(
+        select(UserRoutingConfig).where(UserRoutingConfig.user_id == user_id)
+    )
+    config = config_result.scalar_one_or_none()
+
+    if config:
+        geo_rules = config.geo_rules
+        jumphost_protocol = config.jumphost_protocol
+
+        if config.jumphost_id:
+            jh_result = await db.execute(
+                select(Jumphost).where(Jumphost.id == config.jumphost_id)
+            )
+            jumphost = jh_result.scalar_one_or_none()
+
+    rules_result = await db.execute(
+        select(RoutingRule)
+        .where((RoutingRule.user_id == user_id) | (RoutingRule.user_id.is_(None)))
+        .order_by(RoutingRule.order.asc())
+    )
+    rules = list(rules_result.scalars().all())
+    if rules:
+        routing_rules = rules
+
+    return jumphost, jumphost_protocol, routing_rules, geo_rules
 
 
 @router.get("/sub/{token}")
@@ -38,7 +74,15 @@ async def subscription_profile(
     if not server_list:
         raise HTTPException(status_code=404, detail="No online servers available")
 
-    yaml_content = generate_clash_config(user, server_list, strategy)
+    jumphost, jumphost_protocol, routing_rules, geo_rules = await _load_routing_context(db, str(user.id))
+
+    yaml_content = generate_clash_config(
+        user, server_list, strategy,
+        jumphost=jumphost,
+        jumphost_protocol=jumphost_protocol,
+        routing_rules=routing_rules,
+        geo_rules=geo_rules,
+    )
 
     return Response(
         content=yaml_content,
@@ -71,7 +115,23 @@ async def subscription_v2ray(
     if not server_list:
         raise HTTPException(status_code=404, detail="No online servers available")
 
+    # Check if user has a jumphost configured — prepend SS URI
+    jumphost, jumphost_protocol, _, _ = await _load_routing_context(db, str(user.id))
+
     uris = []
+
+    if jumphost and jumphost.status == "online" and jumphost.shadowsocks_server_key:
+        server_key = decrypt(jumphost.shadowsocks_server_key)
+        user_key_bytes = hashlib.sha256(user.hysteria2_password.encode()).digest()[:16]
+        user_key = base64.b64encode(user_key_bytes).decode()
+        password = f"{server_key}:{user_key}"
+        encoded_password = base64.b64encode(
+            f"{jumphost.shadowsocks_method}:{password}".encode()
+        ).decode()
+        jh_name = quote(f"JH-{jumphost.name}")
+        ss_uri = f"ss://{encoded_password}@{jumphost.ip}:{jumphost.shadowsocks_port}#{jh_name}"
+        uris.append(ss_uri)
+
     for server in server_list:
         # hysteria2://password@host:port?sni=fqdn#name
         hy2_name = quote(f"{server.name}-Hysteria2")
@@ -143,7 +203,15 @@ async def get_clash_profile(
     if not server_list:
         raise HTTPException(status_code=404, detail="No online servers available")
 
-    yaml_content = generate_clash_config(user, server_list, strategy)
+    jumphost, jumphost_protocol, routing_rules, geo_rules = await _load_routing_context(db, user_id)
+
+    yaml_content = generate_clash_config(
+        user, server_list, strategy,
+        jumphost=jumphost,
+        jumphost_protocol=jumphost_protocol,
+        routing_rules=routing_rules,
+        geo_rules=geo_rules,
+    )
 
     filename = f"{user.username}-{strategy}.yaml"
     return Response(
