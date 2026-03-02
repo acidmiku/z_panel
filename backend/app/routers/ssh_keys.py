@@ -43,7 +43,7 @@ async def register_key(
     _: AdminUser = Depends(get_current_user),
 ):
     if not os.path.isfile(body.private_key_path):
-        raise HTTPException(status_code=400, detail=f"Key file not found: {body.private_key_path}")
+        raise HTTPException(status_code=400, detail="SSH key file not found")
 
     fingerprint = _compute_fingerprint(body.private_key_path)
 

@@ -1,5 +1,8 @@
 """Auth router."""
+from datetime import datetime, timezone
+
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -7,10 +10,11 @@ from sqlalchemy import select
 from app.database import get_db
 from app.models import AdminUser
 from app.schemas import LoginRequest, PasswordChangeRequest
-from app.auth import verify_password, create_access_token, create_refresh_token, decode_refresh_token, hash_password
-from app.deps import get_current_user
+from app.auth import verify_password, create_access_token, create_refresh_token, decode_refresh_token, decode_access_token, hash_password
+from app.deps import get_current_user, get_redis
 
 router = APIRouter()
+security = HTTPBearer()
 
 
 class AuthResponse(BaseModel):
@@ -55,6 +59,27 @@ async def refresh(body: RefreshRequest, db: AsyncSession = Depends(get_db)):
         access_token=create_access_token({"sub": str(user.id)}),
         refresh_token=create_refresh_token({"sub": str(user.id)}),
     )
+
+
+@router.post("/logout")
+async def logout(
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+    redis_client=Depends(get_redis),
+):
+    token = credentials.credentials
+    payload = await decode_access_token(token)
+    if not payload or "jti" not in payload:
+        raise HTTPException(status_code=401, detail="Invalid token")
+
+    jti = payload["jti"]
+    exp = payload.get("exp", 0)
+    now = datetime.now(timezone.utc).timestamp()
+    ttl = max(int(exp - now), 0)
+
+    if ttl > 0:
+        await redis_client.setex(f"token_blacklist:{jti}", ttl, "1")
+
+    return {"message": "Logged out successfully"}
 
 
 @router.post("/change-password")

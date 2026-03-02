@@ -46,6 +46,7 @@ async def _harden_common(
     udp_ports: list[int],
     set_progress,
     model_class,
+    ss_port: int | None = None,
 ) -> int:
     """Shared hardening logic for servers and jumphosts.
 
@@ -97,7 +98,7 @@ async def _harden_common(
 
     logger.info(f"[{name}] Hardening step 8: Configuring fail2ban")
     await set_progress(target_id, "Hardening: fail2ban…")
-    await _configure_fail2ban(host, active_ssh_port, username, key_path, hk)
+    await _configure_fail2ban(host, active_ssh_port, username, key_path, hk, ss_port=ss_port)
 
     # Mark as hardened
     async with AsyncSessionLocal() as db:
@@ -192,6 +193,7 @@ async def harden_jumphost(jumphost_id: str) -> None:
             udp_ports=[jumphost.shadowsocks_port],
             set_progress=_set_jumphost_progress,
             model_class=Jumphost,
+            ss_port=jumphost.shadowsocks_port,
         )
     except Exception as e:
         logger.exception(f"Hardening failed for jumphost {jumphost_id}: {e}")
@@ -419,7 +421,7 @@ async def _configure_ufw(host, port, username, key_path, hk,
     )
 
 
-async def _configure_fail2ban(host, port, username, key_path, hk) -> None:
+async def _configure_fail2ban(host, port, username, key_path, hk, ss_port: int | None = None) -> None:
     jail_conf = (
         "[DEFAULT]\n"
         "bantime = 3600\n"
@@ -439,6 +441,37 @@ async def _configure_fail2ban(host, port, username, key_path, hk) -> None:
         "/etc/fail2ban/jail.local", jail_conf,
         known_host_key=hk,
     )
+
+    if ss_port:
+        ss_filter = (
+            "[Definition]\n"
+            "failregex = ^.*inbound/shadowsocks.*authentication failed from <HOST>:\\d+.*$\n"
+            "            ^.*inbound/shadowsocks.*process connection from <HOST>:\\d+.*authentication failed.*$\n"
+            "ignoreregex =\n"
+        )
+        await ssh.write_file(
+            host, port, username, key_path,
+            "/etc/fail2ban/filter.d/sing-box-ss.conf", ss_filter,
+            known_host_key=hk,
+        )
+
+        ss_jail = (
+            "[sing-box-ss]\n"
+            "enabled = true\n"
+            f"port = {ss_port}\n"
+            "filter = sing-box-ss\n"
+            "backend = systemd\n"
+            "journalmatch = _SYSTEMD_UNIT=sing-box.service\n"
+            "maxretry = 5\n"
+            "findtime = 600\n"
+            "bantime = 3600\n"
+        )
+        await ssh.write_file(
+            host, port, username, key_path,
+            "/etc/fail2ban/jail.d/sing-box-ss.conf", ss_jail,
+            known_host_key=hk,
+        )
+
     await ssh.run_command(
         host, port, username, key_path,
         "systemctl enable fail2ban && systemctl restart fail2ban",

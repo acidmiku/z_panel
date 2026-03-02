@@ -144,15 +144,15 @@ async def _do_provision(jumphost, ssh_key, users):
     logger.info(f"[{jumphost.name}] Step 4: Generating SSH tunnel keypair")
     await _set_progress(jid, "Generating tunnel keypair…")
     keygen_script = (
-        "rm -f /tmp/jh_tunnel_key /tmp/jh_tunnel_key.pub && "
+        "(shred -vfz -n 3 /tmp/jh_tunnel_key /tmp/jh_tunnel_key.pub 2>/dev/null || rm -f /tmp/jh_tunnel_key /tmp/jh_tunnel_key.pub) && "
         "ssh-keygen -t ed25519 -f /tmp/jh_tunnel_key -N '' -q && "
         "mkdir -p ~/.ssh && "
         'cat /tmp/jh_tunnel_key.pub | while read key; do '
         'echo "command=\"/bin/false\",no-agent-forwarding,no-X11-forwarding,no-pty $key" >> ~/.ssh/authorized_keys; done && '
         "cat /tmp/jh_tunnel_key && echo '---PUBKEY---' && cat /tmp/jh_tunnel_key.pub && "
-        "rm -f /tmp/jh_tunnel_key /tmp/jh_tunnel_key.pub"
+        "shred -vfz -n 3 /tmp/jh_tunnel_key /tmp/jh_tunnel_key.pub 2>/dev/null || rm -f /tmp/jh_tunnel_key /tmp/jh_tunnel_key.pub"
     )
-    stdout, stderr, code = await ssh.run_command(host, port, username, key_path, keygen_script, timeout=15, known_host_key=hk)
+    stdout, stderr, code = await ssh.run_command(host, port, username, key_path, keygen_script, timeout=15, known_host_key=hk, elevate=False)
     if code != 0:
         raise RuntimeError(f"SSH tunnel keypair generation failed: {stderr[:300]}")
 

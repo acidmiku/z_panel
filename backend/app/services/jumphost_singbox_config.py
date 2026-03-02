@@ -12,9 +12,12 @@ from app.services.singbox_config import is_user_active
 def _derive_user_key(hysteria2_password: str) -> str:
     """Derive per-user Shadowsocks 2022 key from Hysteria2 password.
 
-    SHA-256(password)[:16] → base64
+    PBKDF2-SHA256(password, salt, 100k iterations)[:16] → base64
     """
-    digest = hashlib.sha256(hysteria2_password.encode()).digest()[:16]
+    digest = hashlib.pbkdf2_hmac(
+        'sha256', hysteria2_password.encode(),
+        b'zpanel-ss2022-user-key-v1', 100_000,
+    )[:16]
     return base64.b64encode(digest).decode()
 
 

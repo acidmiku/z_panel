@@ -1,4 +1,5 @@
 """JWT token creation/verification and password hashing."""
+import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
@@ -23,7 +24,7 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -
     expire = datetime.now(timezone.utc) + (
         expires_delta or timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
     )
-    to_encode.update({"exp": expire, "type": "access"})
+    to_encode.update({"exp": expire, "type": "access", "jti": str(uuid.uuid4())})
     return jwt.encode(to_encode, settings.SECRET_KEY, algorithm=ALGORITHM)
 
 
@@ -34,11 +35,14 @@ def create_refresh_token(data: dict) -> str:
     return jwt.encode(to_encode, settings.SECRET_KEY, algorithm=ALGORITHM)
 
 
-def decode_access_token(token: str) -> Optional[dict]:
+async def decode_access_token(token: str, redis_client=None) -> Optional[dict]:
     try:
         payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[ALGORITHM])
-        if payload.get("type") not in ("access", None):  # None for legacy tokens
+        if payload.get("type") != "access":
             return None
+        if redis_client and payload.get("jti"):
+            if await redis_client.exists(f"token_blacklist:{payload['jti']}"):
+                return None
         return payload
     except JWTError:
         return None

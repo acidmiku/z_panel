@@ -1,6 +1,8 @@
 """SSH operations using asyncssh with host key pinning."""
 import asyncio
 import logging
+import shlex
+import uuid as _uuid
 from typing import Optional, Tuple
 
 import asyncssh
@@ -112,7 +114,10 @@ async def run_command(
     command: str,
     timeout: int = 120,
     known_host_key: Optional[str] = None,
+    elevate: bool = True,
 ) -> Tuple[str, str, int]:
+    if elevate and username != "root":
+        command = f"sudo -n sh -c {shlex.quote(command)}"
     conn, _ = await connect_and_pin(host, port, username, private_key_path, known_host_key)
     async with conn:
         result = await asyncio.wait_for(
@@ -130,12 +135,33 @@ async def write_file(
     remote_path: str,
     content: str,
     known_host_key: Optional[str] = None,
+    elevate: bool = True,
 ) -> None:
     conn, _ = await connect_and_pin(host, port, username, private_key_path, known_host_key)
     async with conn:
-        async with conn.start_sftp_client() as sftp:
-            async with sftp.open(remote_path, "w") as f:
-                await f.write(content)
+        if elevate and username != "root":
+            # Non-root: SFTP to /tmp (writable), then sudo mv to target
+            tmp = f"/tmp/_zpanel_{_uuid.uuid4().hex[:8]}"
+            async with conn.start_sftp_client() as sftp:
+                async with sftp.open(tmp, "w") as f:
+                    await f.write(content)
+            result = await asyncio.wait_for(
+                conn.run(
+                    f"sudo -n mkdir -p $(dirname {shlex.quote(remote_path)}) && "
+                    f"sudo -n mv {tmp} {shlex.quote(remote_path)}",
+                    check=False,
+                ),
+                timeout=15,
+            )
+            if (result.exit_status or 0) != 0:
+                raise RuntimeError(
+                    f"Elevated write to {remote_path} failed: "
+                    f"{(result.stderr or '')[:200]}"
+                )
+        else:
+            async with conn.start_sftp_client() as sftp:
+                async with sftp.open(remote_path, "w") as f:
+                    await f.write(content)
 
 
 async def upload_file(
@@ -146,10 +172,28 @@ async def upload_file(
     local_path: str,
     remote_path: str,
     known_host_key: Optional[str] = None,
+    elevate: bool = True,
 ) -> None:
     conn, _ = await connect_and_pin(host, port, username, private_key_path, known_host_key)
     async with conn:
-        await asyncssh.scp(local_path, (conn, remote_path))
+        if elevate and username != "root":
+            # Non-root: SCP to /tmp, then sudo mv to target
+            tmp = f"/tmp/_zpanel_{_uuid.uuid4().hex[:8]}"
+            await asyncssh.scp(local_path, (conn, tmp))
+            result = await asyncio.wait_for(
+                conn.run(
+                    f"sudo -n mv {tmp} {shlex.quote(remote_path)}",
+                    check=False,
+                ),
+                timeout=15,
+            )
+            if (result.exit_status or 0) != 0:
+                raise RuntimeError(
+                    f"Elevated upload to {remote_path} failed: "
+                    f"{(result.stderr or '')[:200]}"
+                )
+        else:
+            await asyncssh.scp(local_path, (conn, remote_path))
 
 
 async def test_connectivity(
