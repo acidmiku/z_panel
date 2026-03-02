@@ -308,3 +308,47 @@ class UserRoutingConfigResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+# Chain Configs (Visual Proxy Chain Editor)
+class ChainConfigCreate(BaseModel):
+    name: str = Field(..., min_length=1, max_length=255)
+    description: Optional[str] = None
+    graph_data: dict
+
+class ChainConfigUpdate(BaseModel):
+    name: Optional[str] = Field(default=None, max_length=255)
+    description: Optional[str] = None
+    graph_data: Optional[dict] = None
+
+class ChainConfigResponse(BaseModel):
+    id: uuid.UUID
+    user_id: uuid.UUID
+    name: str
+    description: Optional[str] = None
+    graph_data: dict
+    generated_config: Optional[dict] = None
+    is_valid: bool = False
+    validation_errors: Optional[List[dict]] = None
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+class ChainConfigListResponse(BaseModel):
+    id: uuid.UUID
+    name: str
+    description: Optional[str] = None
+    is_valid: bool = False
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+class GraphValidationResult(BaseModel):
+    is_valid: bool
+    errors: List[dict] = []
+    warnings: List[dict] = []
+    info: List[dict] = []

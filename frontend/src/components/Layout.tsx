@@ -1,7 +1,7 @@
 import { Outlet, Link, useLocation } from 'react-router-dom'
 import { useAuth } from '@/hooks/useAuth'
 import { useTheme } from '@/hooks/useTheme'
-import { LayoutDashboard, Server, Users, Settings, Sun, Moon, LogOut, Network } from 'lucide-react'
+import { LayoutDashboard, Server, Users, Settings, Sun, Moon, LogOut, Network, Workflow } from 'lucide-react'
 
 const navGroups = [
   {
@@ -14,6 +14,7 @@ const navGroups = [
   },
   {
     items: [
+      { path: '/chain-editor', label: 'Chain Editor', icon: Workflow },
       { path: '/settings', label: 'Settings', icon: Settings },
     ],
   },
@@ -87,9 +88,13 @@ export default function Layout() {
 
       {/* Main Content */}
       <main className="flex-1 overflow-auto">
-        <div className="p-8 max-w-7xl mx-auto">
+        {location.pathname === '/chain-editor' ? (
           <Outlet />
-        </div>
+        ) : (
+          <div className="p-8 max-w-7xl mx-auto">
+            <Outlet />
+          </div>
+        )}
       </main>
     </div>
   )

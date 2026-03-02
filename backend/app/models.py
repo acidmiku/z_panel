@@ -218,3 +218,24 @@ class UserRoutingConfig(Base):
 
     user = relationship("User", back_populates="routing_config")
     jumphost = relationship("Jumphost")
+
+
+# ---------------------------------------------------------------------------
+# Chain Configs (Visual Proxy Chain Editor)
+# ---------------------------------------------------------------------------
+
+class ChainConfig(Base):
+    __tablename__ = "chain_configs"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("admin_users.id", ondelete="CASCADE"), nullable=False)
+    name = Column(String(255), nullable=False)
+    description = Column(Text, nullable=True)
+    graph_data = Column(JSON, nullable=False)
+    generated_config = Column(JSON, nullable=True)
+    is_valid = Column(Boolean, default=False)
+    validation_errors = Column(JSON, nullable=True)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+
+    owner = relationship("AdminUser")

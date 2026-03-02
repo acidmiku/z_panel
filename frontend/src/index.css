@@ -340,6 +340,7 @@
     background: hsla(187, 85%, 53%, 0.02);
     animation: float 30s ease-in-out infinite reverse;
   }
+
 }
 
 @layer utilities {

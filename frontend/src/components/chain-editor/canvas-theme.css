@@ -1,0 +1,179 @@
+/*
+ * React Flow dark theme overrides for z_panel chain editor.
+ * Loaded AFTER @xyflow/react/dist/style.css to override defaults.
+ */
+
+/* ── Canvas background ─────────────────────────────────── */
+.chain-editor-canvas.react-flow {
+  --xy-background-color: hsl(228, 16%, 4%);
+  --xy-node-background-color: transparent;
+  --xy-node-border: none;
+  --xy-node-border-radius: 12px;
+  --xy-node-box-shadow: none;
+  --xy-node-color: hsl(240, 5%, 91%);
+  --xy-edge-stroke: hsl(228, 8%, 22%);
+  --xy-edge-stroke-selected: hsl(187, 85%, 53%);
+  --xy-edge-stroke-width: 2;
+  --xy-connectionline-stroke: hsl(187, 85%, 53%);
+  --xy-connectionline-stroke-width: 2;
+  --xy-handle-background-color: hsl(187, 85%, 53%);
+  --xy-handle-border-color: hsl(228, 16%, 4%);
+  --xy-selection-background-color: hsla(187, 85%, 53%, 0.08);
+  --xy-selection-border: 1px solid hsla(187, 85%, 53%, 0.3);
+  --xy-minimap-background-color: hsl(228, 14%, 6%);
+  --xy-minimap-mask-background-color: hsla(228, 16%, 4%, 0.85);
+  --xy-controls-button-background-color: hsl(228, 14%, 7%);
+  --xy-controls-button-background-color-hover: hsl(228, 10%, 12%);
+  --xy-controls-button-color: hsl(240, 4%, 46%);
+  --xy-controls-button-color-hover: hsl(240, 5%, 91%);
+  --xy-controls-button-border-color: hsl(228, 8%, 14%);
+  --xy-controls-box-shadow: 0 4px 16px hsla(228, 16%, 2%, 0.5);
+  background-color: hsl(228, 16%, 4%) !important;
+}
+
+/* ── Nodes ──────────────────────────────────────────────── */
+.chain-editor-canvas .react-flow__node {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  color: hsl(240, 5%, 91%) !important;
+  cursor: grab;
+  font-family: 'Outfit', system-ui, sans-serif;
+  font-size: 12px;
+}
+
+.chain-editor-canvas .react-flow__node:active {
+  cursor: grabbing;
+}
+
+.chain-editor-canvas .react-flow__node.selected > div,
+.chain-editor-canvas .react-flow__node:focus > div {
+  outline: none;
+}
+
+/* Remove the default blue selection ring RF adds */
+.chain-editor-canvas .react-flow__node.selected {
+  box-shadow: none !important;
+  outline: none !important;
+}
+
+/* ── Handles ────────────────────────────────────────────── */
+.chain-editor-canvas .react-flow__handle {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: 2px solid hsl(228, 16%, 4%);
+  transition: all 0.15s ease;
+}
+
+.chain-editor-canvas .react-flow__handle:hover {
+  transform: scale(1.4);
+  box-shadow: 0 0 10px hsla(187, 85%, 53%, 0.5);
+}
+
+.chain-editor-canvas .react-flow__handle-connecting {
+  background: hsl(187, 85%, 53%) !important;
+  box-shadow: 0 0 12px hsla(187, 85%, 53%, 0.6);
+}
+
+.chain-editor-canvas .react-flow__handle-valid {
+  background: hsl(160, 60%, 45%) !important;
+}
+
+/* ── Connection line ────────────────────────────────────── */
+.chain-editor-canvas .react-flow__connection-path {
+  stroke: hsl(187, 85%, 53%);
+  stroke-width: 2;
+  stroke-dasharray: 6 3;
+  animation: dashmove 0.5s linear infinite;
+}
+
+@keyframes dashmove {
+  to {
+    stroke-dashoffset: -9;
+  }
+}
+
+/* ── Edges ──────────────────────────────────────────────── */
+.chain-editor-canvas .react-flow__edge-path {
+  stroke: hsl(228, 8%, 22%);
+  stroke-width: 2;
+}
+
+.chain-editor-canvas .react-flow__edge.selected .react-flow__edge-path,
+.chain-editor-canvas .react-flow__edge:hover .react-flow__edge-path {
+  stroke: hsl(187, 85%, 53%);
+  filter: drop-shadow(0 0 4px hsla(187, 85%, 53%, 0.3));
+}
+
+/* ── Controls ───────────────────────────────────────────── */
+.chain-editor-canvas .react-flow__controls {
+  background: hsl(228, 14%, 7%) !important;
+  border: 1px solid hsl(228, 8%, 14%) !important;
+  border-radius: 10px !important;
+  box-shadow: 0 4px 20px hsla(228, 16%, 2%, 0.6) !important;
+  overflow: hidden;
+}
+
+.chain-editor-canvas .react-flow__controls button {
+  background: transparent !important;
+  border: none !important;
+  border-bottom: 1px solid hsl(228, 8%, 14%) !important;
+  color: hsl(240, 4%, 46%) !important;
+  width: 30px !important;
+  height: 30px !important;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 !important;
+}
+
+.chain-editor-canvas .react-flow__controls button:last-child {
+  border-bottom: none !important;
+}
+
+.chain-editor-canvas .react-flow__controls button:hover {
+  background: hsl(228, 10%, 12%) !important;
+  color: hsl(240, 5%, 91%) !important;
+}
+
+.chain-editor-canvas .react-flow__controls button svg {
+  fill: currentColor !important;
+  width: 14px;
+  height: 14px;
+}
+
+.chain-editor-canvas .react-flow__controls button svg path {
+  fill: currentColor !important;
+}
+
+/* ── Minimap ────────────────────────────────────────────── */
+.chain-editor-canvas .react-flow__minimap {
+  background: hsl(228, 14%, 6%) !important;
+  border: 1px solid hsl(228, 8%, 14%) !important;
+  border-radius: 10px !important;
+  box-shadow: 0 4px 20px hsla(228, 16%, 2%, 0.6) !important;
+  overflow: hidden;
+}
+
+/* ── Background ─────────────────────────────────────────── */
+.chain-editor-canvas .react-flow__background {
+  background-color: hsl(228, 16%, 4%) !important;
+}
+
+/* ── Selection box ──────────────────────────────────────── */
+.chain-editor-canvas .react-flow__selection {
+  background: hsla(187, 85%, 53%, 0.06) !important;
+  border: 1px solid hsla(187, 85%, 53%, 0.25) !important;
+  border-radius: 4px;
+}
+
+/* ── Pane (click area) ──────────────────────────────────── */
+.chain-editor-canvas .react-flow__pane {
+  cursor: default;
+}
+
+/* ── Attribution hide (pro) ─────────────────────────────── */
+.chain-editor-canvas .react-flow__attribution {
+  display: none;
+}
