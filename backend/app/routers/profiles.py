@@ -122,7 +122,10 @@ async def subscription_v2ray(
 
     if jumphost and jumphost.status == "online" and jumphost.shadowsocks_server_key:
         server_key = decrypt(jumphost.shadowsocks_server_key)
-        user_key_bytes = hashlib.sha256(user.hysteria2_password.encode()).digest()[:16]
+        user_key_bytes = hashlib.pbkdf2_hmac(
+            'sha256', user.hysteria2_password.encode(),
+            b'zpanel-ss2022-user-key-v1', 100_000,
+        )[:16]
         user_key = base64.b64encode(user_key_bytes).decode()
         password = f"{server_key}:{user_key}"
         encoded_password = base64.b64encode(

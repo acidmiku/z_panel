@@ -126,8 +126,11 @@ GEO_RULE_PROVIDERS = {
 
 
 def _derive_user_ss_key(hysteria2_password: str) -> str:
-    """Derive per-user Shadowsocks 2022 key."""
-    digest = hashlib.sha256(hysteria2_password.encode()).digest()[:16]
+    """Derive per-user Shadowsocks 2022 key (must match jumphost_singbox_config)."""
+    digest = hashlib.pbkdf2_hmac(
+        'sha256', hysteria2_password.encode(),
+        b'zpanel-ss2022-user-key-v1', 100_000,
+    )[:16]
     return base64.b64encode(digest).decode()
 
 
