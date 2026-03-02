@@ -187,52 +187,98 @@ const HOP_LATENCY: Record<string, number> = {
   ssh: 30, shadowsocks: 20, vless: 25, hysteria2: 15,
 }
 
+interface PathInfo {
+  labels: string[]
+  hops: number
+  latency: number
+}
+
 function buildChainInfo(
   clientId: string,
   outgoing: Map<string, Edge[]>,
   nodeMap: Map<string, Node>,
   info: ValidationMessage[],
 ): void {
-  function walk(nid: string): [string[], number] {
+  const paths: PathInfo[] = []
+
+  // Walk all paths from a node, collecting every unique terminal path
+  function walk(nid: string, path: string[], hops: number, lat: number, visited: Set<string>): void {
+    if (visited.has(nid)) return
+    visited.add(nid)
+
     const node = nodeMap.get(nid)
-    if (!node) return [[], 0]
+    if (!node) return
     const data = node.data as Record<string, unknown>
     const label = (data?.label as string) || nid
     const outs = outgoing.get(nid) || []
+    const proto = ((data?.protocol as string) || '').toLowerCase()
 
-    if (node.type === 'directNode' || (node.type === 'serverNode' && outs.length === 0)) {
-      const proto = ((data?.protocol as string) || '').toLowerCase()
-      const lat = node.type === 'serverNode' ? (HOP_LATENCY[proto] ?? 25) : 0
-      return [[label], lat]
+    const curPath = [...path, label]
+    const isServer = node.type === 'serverNode'
+    const curHops = hops + (isServer ? 1 : 0)
+    const curLat = lat + (isServer ? (HOP_LATENCY[proto] ?? 25) : 0)
+
+    // Terminal: server with no outputs, or direct node
+    if ((isServer && outs.length === 0) || node.type === 'directNode') {
+      paths.push({ labels: curPath, hops: curHops, latency: curLat })
+      return
     }
 
-    if (outs.length > 0) {
-      const [rest, restLat] = walk(outs[0].target)
-      const proto = ((data?.protocol as string) || '').toLowerCase()
-      const lat = node.type === 'serverNode' ? (HOP_LATENCY[proto] ?? 0) : 0
-      return [[label, ...rest], lat + restLat]
-    }
-
-    return [[label], 0]
-  }
-
-  const [chain, totalLat] = walk(clientId)
-  let serverCount = 0
-  for (const label of chain) {
-    for (const [, n] of nodeMap) {
-      const d = n.data as Record<string, unknown>
-      if ((d?.label as string) === label && n.type === 'serverNode') {
-        serverCount++
-        break
+    // For strategy nodes, show the strategy but just count one representative path
+    if (node.type === 'strategyNode') {
+      // Collect the output server/node labels for summary
+      const memberLabels: string[] = []
+      for (const edge of outs) {
+        const t = nodeMap.get(edge.target)
+        if (t) {
+          const tData = t.data as Record<string, unknown>
+          memberLabels.push((tData?.label as string) || edge.target)
+        }
       }
+      const groupLabel = `${label}[${memberLabels.join(', ')}]`
+      // Pick the first output to estimate latency
+      if (outs.length > 0) {
+        const firstTarget = nodeMap.get(outs[0].target)
+        if (firstTarget) {
+          const tData = firstTarget.data as Record<string, unknown>
+          const tProto = ((tData?.protocol as string) || '').toLowerCase()
+          const tLat = firstTarget.type === 'serverNode' ? (HOP_LATENCY[tProto] ?? 25) : 0
+          paths.push({ labels: [...path, groupLabel], hops: curHops + 1, latency: curLat + tLat })
+        }
+      }
+      return
+    }
+
+    // For route / other nodes, follow all branches
+    if (outs.length === 0) {
+      paths.push({ labels: curPath, hops: curHops, latency: curLat })
+      return
+    }
+
+    for (const edge of outs) {
+      walk(edge.target, curPath, curHops, curLat, new Set(visited))
     }
   }
+
+  walk(clientId, [], 0, 0, new Set())
+
+  if (paths.length === 0) return
+
+  // Find the proxy path (highest hop count) for the main summary
+  const proxyPaths = paths.filter(p => p.hops > 0)
+  const directPaths = paths.filter(p => p.hops === 0)
+  const mainPath = proxyPaths.length > 0
+    ? proxyPaths.reduce((a, b) => a.hops >= b.hops ? a : b)
+    : paths[0]
 
   info.push({
     type: 'info', code: 'CHAIN_SUMMARY',
-    message: `Chain: ${chain.join(' → ')} (${serverCount} hop${serverCount !== 1 ? 's' : ''})`,
+    message: `Proxy chain: ${mainPath.labels.join(' → ')} (${mainPath.hops} hop${mainPath.hops !== 1 ? 's' : ''})`,
   })
-  if (totalLat > 0) {
-    info.push({ type: 'info', code: 'ESTIMATED_RTT', message: `Estimated RTT: ~${totalLat}ms` })
+  if (mainPath.latency > 0) {
+    info.push({ type: 'info', code: 'ESTIMATED_RTT', message: `Estimated RTT: ~${mainPath.latency}ms` })
+  }
+  if (directPaths.length > 0) {
+    info.push({ type: 'info', code: 'DIRECT_RULES', message: `${directPaths.length} routing rule${directPaths.length !== 1 ? 's' : ''} → Direct` })
   }
 }
