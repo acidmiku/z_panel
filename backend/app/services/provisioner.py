@@ -259,12 +259,30 @@ async def _do_provision(server, cf_config, ssh_key, users):
     except Exception as e:
         logger.error(f"[{server.name}] Hardening failed (sing-box still running): {e}")
 
+    # Install MTProxy (telemt) if requested during creation
+    async with AsyncSessionLocal() as db:
+        result = await db.execute(select(Server).where(Server.id == server.id))
+        srv = result.scalar_one()
+        wants_mtproxy = srv.mtproxy_tls_domain and not srv.mtproxy_enabled
+
+    if wants_mtproxy:
+        try:
+            await _set_progress(sid, "Installing MTProxy…")
+            from app.services.telemt_installer import install_mtproxy_on_server
+            await install_mtproxy_on_server(
+                str(server.id),
+                mtproxy_port=srv.mtproxy_port or 443,
+                tls_domain=srv.mtproxy_tls_domain,
+            )
+        except Exception as e:
+            logger.error(f"[{server.name}] MTProxy install failed (sing-box still running): {e}")
+
     # Provisioning (+ hardening) complete — mark as online
     async with AsyncSessionLocal() as db:
         result = await db.execute(select(Server).where(Server.id == server.id))
         srv = result.scalar_one()
         srv.status = "online"
-        if not srv.status_message or srv.status_message.startswith("Hardening"):
+        if not srv.status_message or srv.status_message.startswith(("Hardening", "MTProxy", "Installing")):
             srv.status_message = None
         await db.commit()
 

@@ -81,6 +81,13 @@ class Server(Base):
     traffic_cache = Column(JSON, nullable=True)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
+    # MTProxy (telemt)
+    mtproxy_enabled = Column(Boolean, default=False)
+    mtproxy_port = Column(Integer, nullable=True)
+    mtproxy_secret = Column(Text, nullable=True)  # encrypted
+    mtproxy_tls_domain = Column(String(255), nullable=True)
+    mtproxy_link = Column(Text, nullable=True)
+
     ssh_key = relationship("SSHKey", back_populates="servers")
     cf_config = relationship("CloudflareConfig", back_populates="servers")
     traffic_records = relationship("ServerUserTraffic", back_populates="server", cascade="all, delete-orphan")
@@ -167,7 +174,16 @@ class Jumphost(Base):
     traffic_cache = Column(JSON, nullable=True)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
+    # MTProxy (telemt)
+    mtproxy_enabled = Column(Boolean, default=False)
+    mtproxy_port = Column(Integer, nullable=True)
+    mtproxy_secret = Column(Text, nullable=True)  # encrypted
+    mtproxy_tls_domain = Column(String(255), nullable=True)
+    mtproxy_link = Column(Text, nullable=True)
+    mtproxy_relay_server_id = Column(UUID(as_uuid=True), ForeignKey("servers.id", ondelete="SET NULL"), nullable=True)
+
     ssh_key = relationship("SSHKey", back_populates="jumphosts")
+    relay_server = relationship("Server", foreign_keys=[mtproxy_relay_server_id])
     traffic_snapshots = relationship("JumphostTrafficSnapshot", back_populates="jumphost", cascade="all, delete-orphan")
 
 
@@ -218,3 +234,24 @@ class UserRoutingConfig(Base):
 
     user = relationship("User", back_populates="routing_config")
     jumphost = relationship("Jumphost")
+
+
+# ---------------------------------------------------------------------------
+# Chain Configs (Visual Proxy Chain Editor)
+# ---------------------------------------------------------------------------
+
+class ChainConfig(Base):
+    __tablename__ = "chain_configs"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("admin_users.id", ondelete="CASCADE"), nullable=False)
+    name = Column(String(255), nullable=False)
+    description = Column(Text, nullable=True)
+    graph_data = Column(JSON, nullable=False)
+    generated_config = Column(JSON, nullable=True)
+    is_valid = Column(Boolean, default=False)
+    validation_errors = Column(JSON, nullable=True)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+
+    owner = relationship("AdminUser")

@@ -51,6 +51,7 @@ class SSHKeyResponse(BaseModel):
 
 
 _IP_RE = re.compile(r"^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$")
+_DOMAIN_RE = re.compile(r"^[a-zA-Z0-9]([a-zA-Z0-9\-]*[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9\-]*[a-zA-Z0-9])?)*$")
 
 
 def _validate_ip(v: str) -> str:
@@ -59,6 +60,12 @@ def _validate_ip(v: str) -> str:
     parts = v.split(".")
     if any(int(p) > 255 for p in parts):
         raise ValueError("Each octet must be 0-255")
+    return v
+
+
+def _validate_domain(v: str) -> str:
+    if not _DOMAIN_RE.match(v) or len(v) > 255:
+        raise ValueError("Must be a valid domain name (letters, digits, hyphens, dots)")
     return v
 
 
@@ -75,11 +82,19 @@ class ServerCreate(BaseModel):
     reality_dest: str = "dl.google.com:443"
     reality_server_name: str = "dl.google.com"
     subdomain_prefix: Optional[str] = Field(default=None, max_length=50)
+    install_mtproxy: bool = False
+    mtproxy_port: int = Field(default=443, ge=1, le=65535)
+    mtproxy_tls_domain: str = "www.google.com"
 
     @field_validator("ip")
     @classmethod
     def validate_ip(cls, v: str) -> str:
         return _validate_ip(v)
+
+    @field_validator("mtproxy_tls_domain")
+    @classmethod
+    def validate_tls_domain(cls, v: str) -> str:
+        return _validate_domain(v)
 
 class ServerBatchCreate(BaseModel):
     ips: List[str]
@@ -93,11 +108,19 @@ class ServerBatchCreate(BaseModel):
     reality_dest: str = "dl.google.com:443"
     reality_server_name: str = "dl.google.com"
     subdomain_prefix: Optional[str] = Field(default=None, max_length=50)
+    install_mtproxy: bool = False
+    mtproxy_port: int = Field(default=443, ge=1, le=65535)
+    mtproxy_tls_domain: str = "www.google.com"
 
     @field_validator("ips")
     @classmethod
     def validate_ips(cls, v: list[str]) -> list[str]:
         return [_validate_ip(ip.strip()) for ip in v if ip.strip()]
+
+    @field_validator("mtproxy_tls_domain")
+    @classmethod
+    def validate_tls_domain(cls, v: str) -> str:
+        return _validate_domain(v)
 
 class ServerUpdate(BaseModel):
     name: Optional[str] = Field(default=None, max_length=255)
@@ -142,6 +165,10 @@ class ServerResponse(BaseModel):
     last_health_check: Optional[datetime] = None
     sing_box_version: Optional[str] = None
     system_stats: Optional[dict[str, Any]] = None
+    mtproxy_enabled: bool = False
+    mtproxy_port: Optional[int] = None
+    mtproxy_tls_domain: Optional[str] = None
+    mtproxy_link: Optional[str] = None
     created_at: datetime
 
     class Config:
@@ -215,11 +242,19 @@ class JumphostCreate(BaseModel):
     ssh_port: int = Field(default=22, ge=1, le=65535)
     ssh_user: str = Field(default="root", min_length=1, max_length=255)
     ssh_key_id: uuid.UUID
+    install_mtproxy: bool = False
+    mtproxy_port: int = Field(default=443, ge=1, le=65535)
+    mtproxy_tls_domain: str = "www.google.com"
 
     @field_validator("ip")
     @classmethod
     def validate_ip(cls, v: str) -> str:
         return _validate_ip(v)
+
+    @field_validator("mtproxy_tls_domain")
+    @classmethod
+    def validate_tls_domain(cls, v: str) -> str:
+        return _validate_domain(v)
 
 
 class JumphostUpdate(BaseModel):
@@ -252,10 +287,37 @@ class JumphostResponse(BaseModel):
     last_health_check: Optional[datetime] = None
     sing_box_version: Optional[str] = None
     system_stats: Optional[dict[str, Any]] = None
+    mtproxy_enabled: bool = False
+    mtproxy_port: Optional[int] = None
+    mtproxy_tls_domain: Optional[str] = None
+    mtproxy_link: Optional[str] = None
+    mtproxy_relay_server_id: Optional[uuid.UUID] = None
     created_at: datetime
 
     class Config:
         from_attributes = True
+
+
+# MTProxy install request
+class MtproxyInstallRequest(BaseModel):
+    port: int = Field(default=443, ge=1, le=65535)
+    tls_domain: str = Field(default="www.google.com", min_length=1, max_length=255)
+
+    @field_validator("tls_domain")
+    @classmethod
+    def validate_tls_domain(cls, v: str) -> str:
+        return _validate_domain(v)
+
+
+class MtproxyRelayRequest(BaseModel):
+    server_id: uuid.UUID
+    port: int = Field(default=443, ge=1, le=65535)
+    tls_domain: str = Field(default="www.google.com", min_length=1, max_length=255)
+
+    @field_validator("tls_domain")
+    @classmethod
+    def validate_tls_domain(cls, v: str) -> str:
+        return _validate_domain(v)
 
 
 # Routing Rules
@@ -308,3 +370,47 @@ class UserRoutingConfigResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+# Chain Configs (Visual Proxy Chain Editor)
+class ChainConfigCreate(BaseModel):
+    name: str = Field(..., min_length=1, max_length=255)
+    description: Optional[str] = None
+    graph_data: dict
+
+class ChainConfigUpdate(BaseModel):
+    name: Optional[str] = Field(default=None, max_length=255)
+    description: Optional[str] = None
+    graph_data: Optional[dict] = None
+
+class ChainConfigResponse(BaseModel):
+    id: uuid.UUID
+    user_id: uuid.UUID
+    name: str
+    description: Optional[str] = None
+    graph_data: dict
+    generated_config: Optional[dict] = None
+    is_valid: bool = False
+    validation_errors: Optional[List[dict]] = None
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+class ChainConfigListResponse(BaseModel):
+    id: uuid.UUID
+    name: str
+    description: Optional[str] = None
+    is_valid: bool = False
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+class GraphValidationResult(BaseModel):
+    is_valid: bool
+    errors: List[dict] = []
+    warnings: List[dict] = []
+    info: List[dict] = []

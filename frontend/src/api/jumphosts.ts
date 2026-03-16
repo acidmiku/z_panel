@@ -23,6 +23,11 @@ export interface Jumphost {
     disk_total?: number
     disk_used?: number
   } | null
+  mtproxy_enabled: boolean
+  mtproxy_port: number | null
+  mtproxy_tls_domain: string | null
+  mtproxy_link: string | null
+  mtproxy_relay_server_id: string | null
   created_at: string
 }
 
@@ -107,6 +112,39 @@ export function useReinstallJumphost() {
   return useMutation({
     mutationFn: async (id: string) => {
       const { data } = await api.post(`/jumphosts/${id}/reinstall`)
+      return data
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['jumphosts'] }),
+  })
+}
+
+export function useInstallMtproxyJumphost() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ id, port, tls_domain }: { id: string; port: number; tls_domain: string }) => {
+      const { data } = await api.post(`/jumphosts/${id}/install-mtproxy`, { port, tls_domain })
+      return data
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['jumphosts'] }),
+  })
+}
+
+export function useUninstallMtproxyJumphost() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const { data } = await api.delete(`/jumphosts/${id}/uninstall-mtproxy`)
+      return data
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['jumphosts'] }),
+  })
+}
+
+export function useSetupRelayJumphost() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ id, server_id, port, tls_domain }: { id: string; server_id: string; port: number; tls_domain: string }) => {
+      const { data } = await api.post(`/jumphosts/${id}/setup-relay`, { server_id, port, tls_domain })
       return data
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ['jumphosts'] }),

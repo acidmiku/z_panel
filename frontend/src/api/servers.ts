@@ -31,6 +31,10 @@ export interface Server {
     disk_total?: number
     disk_used?: number
   } | null
+  mtproxy_enabled: boolean
+  mtproxy_port: number | null
+  mtproxy_tls_domain: string | null
+  mtproxy_link: string | null
   created_at: string
 }
 
@@ -141,6 +145,28 @@ export function useServerLogs(id: string | null) {
     },
     enabled: !!id,
     refetchInterval: false,
+  })
+}
+
+export function useInstallMtproxyServer() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ id, port, tls_domain }: { id: string; port: number; tls_domain: string }) => {
+      const { data } = await api.post(`/servers/${id}/install-mtproxy`, { port, tls_domain })
+      return data
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['servers'] }),
+  })
+}
+
+export function useUninstallMtproxyServer() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const { data } = await api.delete(`/servers/${id}/uninstall-mtproxy`)
+      return data
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['servers'] }),
   })
 }
 

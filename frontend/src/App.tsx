@@ -9,6 +9,7 @@ import Users from './pages/Users'
 import Profiles from './pages/Profiles'
 import Routing from './pages/Routing'
 import Settings from './pages/Settings'
+import ChainEditor from './pages/ChainEditor'
 import { Toaster } from './components/Toaster'
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
@@ -29,6 +30,7 @@ export default function App() {
           <Route path="users" element={<Users />} />
           <Route path="profiles/:userId" element={<Profiles />} />
           <Route path="routing/:userId" element={<Routing />} />
+          <Route path="chain-editor" element={<ChainEditor />} />
           <Route path="settings" element={<Settings />} />
         </Route>
       </Routes>
