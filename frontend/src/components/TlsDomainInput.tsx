@@ -10,7 +10,7 @@ interface Props {
 }
 
 export default function TlsDomainInput({ value, onChange, ip, className = '' }: Props) {
-  const { data } = useSuggestTlsDomain(ip)
+  const { data, isLoading } = useSuggestTlsDomain(ip)
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
 
@@ -23,7 +23,7 @@ export default function TlsDomainInput({ value, onChange, ip, className = '' }: 
   }, [])
 
   const suggestions = data?.suggestions || []
-  const hasAutoSuggestions = suggestions.length > 0 && suggestions[0] !== 'www.google.com'
+  const isProviderDetected = suggestions.length > 0 && suggestions[0] !== 'www.google.com'
 
   return (
     <div ref={ref} className="relative">
@@ -32,25 +32,31 @@ export default function TlsDomainInput({ value, onChange, ip, className = '' }: 
         <input
           value={value}
           onChange={e => onChange(e.target.value)}
-          onFocus={() => setOpen(true)}
+          onFocus={() => suggestions.length > 0 && setOpen(true)}
           className={`input-glass font-mono pr-8 ${className}`}
           placeholder="www.google.com"
         />
-        {hasAutoSuggestions && (
+        {suggestions.length > 0 && (
           <button
             type="button"
             onClick={() => setOpen(!open)}
-            className="absolute right-2 top-1/2 -translate-y-1/2 p-0.5 rounded text-amber-400/60 hover:text-amber-400 transition-colors"
-            title="Auto-suggested domains for this IP"
+            className={`absolute right-2 top-1/2 -translate-y-1/2 p-0.5 rounded transition-colors ${
+              isProviderDetected
+                ? 'text-amber-400/70 hover:text-amber-400'
+                : 'text-muted-foreground/50 hover:text-muted-foreground'
+            }`}
+            title={isProviderDetected ? 'Provider-matched suggestions' : 'Domain suggestions'}
           >
             <Sparkles className="w-3.5 h-3.5" />
           </button>
         )}
       </div>
-      {open && hasAutoSuggestions && (
+      {open && suggestions.length > 0 && (
         <div className="absolute z-50 mt-1 w-full rounded-lg border border-border/60 bg-popover shadow-xl overflow-hidden">
           <div className="px-3 py-1.5 border-b border-border/30">
-            <span className="text-[10px] font-medium text-amber-400/70 uppercase tracking-wider">Suggested for this IP</span>
+            <span className={`text-[10px] font-medium uppercase tracking-wider ${isProviderDetected ? 'text-amber-400/70' : 'text-muted-foreground/60'}`}>
+              {isProviderDetected ? 'Matched to hosting provider' : 'Common fronting domains'}
+            </span>
           </div>
           {suggestions.map(d => (
             <button
@@ -66,7 +72,7 @@ export default function TlsDomainInput({ value, onChange, ip, className = '' }: 
       )}
       <p className="text-xs text-muted-foreground mt-0.5 opacity-60">
         DPI sees this domain in TLS handshake
-        {hasAutoSuggestions && <span className="text-amber-400/60 ml-1">— auto-detected provider</span>}
+        {isProviderDetected && <span className="text-amber-400/60 ml-1">— provider detected</span>}
       </p>
     </div>
   )
