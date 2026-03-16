@@ -81,6 +81,13 @@ class Server(Base):
     traffic_cache = Column(JSON, nullable=True)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
+    # MTProxy (telemt)
+    mtproxy_enabled = Column(Boolean, default=False)
+    mtproxy_port = Column(Integer, nullable=True)
+    mtproxy_secret = Column(Text, nullable=True)  # encrypted
+    mtproxy_tls_domain = Column(String(255), nullable=True)
+    mtproxy_link = Column(Text, nullable=True)
+
     ssh_key = relationship("SSHKey", back_populates="servers")
     cf_config = relationship("CloudflareConfig", back_populates="servers")
     traffic_records = relationship("ServerUserTraffic", back_populates="server", cascade="all, delete-orphan")
@@ -167,7 +174,16 @@ class Jumphost(Base):
     traffic_cache = Column(JSON, nullable=True)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
+    # MTProxy (telemt)
+    mtproxy_enabled = Column(Boolean, default=False)
+    mtproxy_port = Column(Integer, nullable=True)
+    mtproxy_secret = Column(Text, nullable=True)  # encrypted
+    mtproxy_tls_domain = Column(String(255), nullable=True)
+    mtproxy_link = Column(Text, nullable=True)
+    mtproxy_relay_server_id = Column(UUID(as_uuid=True), ForeignKey("servers.id", ondelete="SET NULL"), nullable=True)
+
     ssh_key = relationship("SSHKey", back_populates="jumphosts")
+    relay_server = relationship("Server", foreign_keys=[mtproxy_relay_server_id])
     traffic_snapshots = relationship("JumphostTrafficSnapshot", back_populates="jumphost", cascade="all, delete-orphan")
 
 

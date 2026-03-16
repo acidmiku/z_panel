@@ -8,7 +8,7 @@ from arq.connections import create_pool
 
 from app.database import get_db
 from app.models import Jumphost, SSHKey, AdminUser, JumphostTrafficSnapshot
-from app.schemas import JumphostCreate, JumphostUpdate, JumphostResponse
+from app.schemas import JumphostCreate, JumphostUpdate, JumphostResponse, MtproxyInstallRequest, MtproxyRelayRequest
 from app.deps import get_current_user
 from app.services import ssh
 from app.config import settings
@@ -46,6 +46,8 @@ async def add_jumphost(
         ssh_port=body.ssh_port,
         ssh_user=body.ssh_user,
         ssh_key_id=body.ssh_key_id,
+        mtproxy_tls_domain=body.mtproxy_tls_domain if body.install_mtproxy else None,
+        mtproxy_port=body.mtproxy_port if body.install_mtproxy else None,
         status="provisioning",
     )
     db.add(jumphost)
@@ -206,6 +208,83 @@ async def get_traffic_history(
         })
 
     return {"jumphost_id": jumphost_id, "rates": rates}
+
+
+@router.post("/{jumphost_id}/install-mtproxy")
+async def install_mtproxy(
+    jumphost_id: str,
+    body: MtproxyInstallRequest,
+    db: AsyncSession = Depends(get_db),
+    _: AdminUser = Depends(get_current_user),
+):
+    result = await db.execute(select(Jumphost).where(Jumphost.id == jumphost_id))
+    jumphost = result.scalar_one_or_none()
+    if not jumphost:
+        raise HTTPException(status_code=404, detail="Jumphost not found")
+
+    if jumphost.mtproxy_enabled:
+        raise HTTPException(status_code=400, detail="MTProxy is already installed")
+
+    if jumphost.status not in ("online", "error"):
+        raise HTTPException(status_code=400, detail=f"Jumphost must be online (current: {jumphost.status})")
+
+    pool = await _get_arq_pool()
+    await pool.enqueue_job("task_install_mtproxy_jumphost", str(jumphost.id), body.port, body.tls_domain)
+    await pool.close()
+
+    return {"message": "MTProxy installation queued"}
+
+
+@router.delete("/{jumphost_id}/uninstall-mtproxy")
+async def uninstall_mtproxy(
+    jumphost_id: str,
+    db: AsyncSession = Depends(get_db),
+    _: AdminUser = Depends(get_current_user),
+):
+    result = await db.execute(select(Jumphost).where(Jumphost.id == jumphost_id))
+    jumphost = result.scalar_one_or_none()
+    if not jumphost:
+        raise HTTPException(status_code=404, detail="Jumphost not found")
+
+    if not jumphost.mtproxy_enabled:
+        raise HTTPException(status_code=400, detail="MTProxy is not installed")
+
+    pool = await _get_arq_pool()
+    if jumphost.mtproxy_relay_server_id:
+        await pool.enqueue_job("task_uninstall_mtproxy_relay", str(jumphost.id))
+    else:
+        await pool.enqueue_job("task_uninstall_mtproxy_jumphost", str(jumphost.id))
+    await pool.close()
+
+    return {"message": "MTProxy uninstall queued"}
+
+
+@router.post("/{jumphost_id}/setup-relay")
+async def setup_relay(
+    jumphost_id: str,
+    body: MtproxyRelayRequest,
+    db: AsyncSession = Depends(get_db),
+    _: AdminUser = Depends(get_current_user),
+):
+    result = await db.execute(select(Jumphost).where(Jumphost.id == jumphost_id))
+    jumphost = result.scalar_one_or_none()
+    if not jumphost:
+        raise HTTPException(status_code=404, detail="Jumphost not found")
+
+    if jumphost.mtproxy_enabled:
+        raise HTTPException(status_code=400, detail="MTProxy is already active (direct or relay)")
+
+    if jumphost.status not in ("online", "error"):
+        raise HTTPException(status_code=400, detail=f"Jumphost must be online (current: {jumphost.status})")
+
+    pool = await _get_arq_pool()
+    await pool.enqueue_job(
+        "task_install_mtproxy_relay", str(jumphost.id), str(body.server_id),
+        body.port, body.tls_domain,
+    )
+    await pool.close()
+
+    return {"message": "MTProxy relay setup queued"}
 
 
 @router.get("/{jumphost_id}/logs")

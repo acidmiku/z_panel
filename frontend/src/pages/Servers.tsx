@@ -1,5 +1,5 @@
 import { useState, Fragment } from 'react'
-import { useServers, useCreateServer, useBatchCreateServers, useUpdateServer, useDeleteServer, useSyncServer, useReinstallServer, useServerLogs, Server } from '@/api/servers'
+import { useServers, useCreateServer, useBatchCreateServers, useUpdateServer, useDeleteServer, useSyncServer, useReinstallServer, useServerLogs, useInstallMtproxyServer, useUninstallMtproxyServer, Server } from '@/api/servers'
 import { useSSHKeys } from '@/api/ssh-keys'
 import { useCloudflareConfigs } from '@/api/cloudflare'
 import StatusBadge from '@/components/StatusBadge'
@@ -7,7 +7,8 @@ import ConfirmDialog from '@/components/ConfirmDialog'
 import { formatRelativeTime } from '@/lib/utils'
 import { toast } from '@/components/Toaster'
 import { useMaskIPs } from '@/hooks/useMaskIPs'
-import { Eye, EyeOff, Plus, Layers, Shield, RefreshCw, X, AlertTriangle } from 'lucide-react'
+import TlsDomainInput from '@/components/TlsDomainInput'
+import { Eye, EyeOff, Plus, Layers, Shield, RefreshCw, X, AlertTriangle, Send, Copy, Check } from 'lucide-react'
 
 interface ServerFormData {
   name: string; ip: string; ssh_port: number; ssh_user: string
@@ -15,6 +16,7 @@ interface ServerFormData {
   hysteria2_port: number; reality_port: number
   reality_dest: string; reality_server_name: string
   subdomain_prefix: string
+  install_mtproxy: boolean; mtproxy_port: number; mtproxy_tls_domain: string
 }
 
 function ServerFormFields({ f, setF, sshKeys, cfConfigs }: {
@@ -90,6 +92,8 @@ export default function Servers() {
   const deleteServer = useDeleteServer()
   const syncServer = useSyncServer()
   const reinstallServer = useReinstallServer()
+  const installMtproxy = useInstallMtproxyServer()
+  const uninstallMtproxy = useUninstallMtproxyServer()
 
   const { masked, toggle: toggleMask, mask } = useMaskIPs()
 
@@ -100,12 +104,17 @@ export default function Servers() {
   const [reinstallId, setReinstallId] = useState<string | null>(null)
   const [logsId, setLogsId] = useState<string | null>(null)
   const [expandedError, setExpandedError] = useState<string | null>(null)
+  const [mtproxyId, setMtproxyId] = useState<string | null>(null)
+  const [mtproxyForm, setMtproxyForm] = useState({ port: 443, tls_domain: 'www.google.com' })
+  const [copiedLink, setCopiedLink] = useState<string | null>(null)
+  const [uninstallMtproxyId, setUninstallMtproxyId] = useState<string | null>(null)
   const [form, setForm] = useState({
     name: '', ip: '', ssh_port: 22, ssh_user: 'root',
     ssh_key_id: '', cf_config_id: '',
     hysteria2_port: 443, reality_port: 443,
     reality_dest: 'dl.google.com:443', reality_server_name: 'dl.google.com',
     subdomain_prefix: '',
+    install_mtproxy: false, mtproxy_port: 443, mtproxy_tls_domain: 'www.google.com',
   })
   const [editForm, setEditForm] = useState({
     name: '', ip: '', ssh_port: 22, ssh_user: 'root',
@@ -113,6 +122,7 @@ export default function Servers() {
     hysteria2_port: 443, reality_port: 443,
     reality_dest: '', reality_server_name: '',
     subdomain_prefix: '',
+    install_mtproxy: false, mtproxy_port: 443, mtproxy_tls_domain: 'www.google.com',
   })
   const [batchForm, setBatchForm] = useState({
     ips_text: '', name_prefix: 'vps', ssh_port: 22, ssh_user: 'root',
@@ -120,6 +130,7 @@ export default function Servers() {
     hysteria2_port: 443, reality_port: 443,
     reality_dest: 'dl.google.com:443', reality_server_name: 'dl.google.com',
     subdomain_prefix: '',
+    install_mtproxy: false, mtproxy_port: 443, mtproxy_tls_domain: 'www.google.com',
   })
 
   const { data: logsData, isLoading: logsLoading, refetch: refetchLogs } = useServerLogs(logsId)
@@ -130,6 +141,7 @@ export default function Servers() {
     hysteria2_port: 443, reality_port: 443,
     reality_dest: 'dl.google.com:443', reality_server_name: 'dl.google.com',
     subdomain_prefix: '',
+    install_mtproxy: false, mtproxy_port: 443, mtproxy_tls_domain: 'www.google.com',
   })
 
   const resetBatchForm = () => setBatchForm({
@@ -138,6 +150,7 @@ export default function Servers() {
     hysteria2_port: 443, reality_port: 443,
     reality_dest: 'dl.google.com:443', reality_server_name: 'dl.google.com',
     subdomain_prefix: '',
+    install_mtproxy: false, mtproxy_port: 443, mtproxy_tls_domain: 'www.google.com',
   })
 
   const parsedIps = batchForm.ips_text
@@ -153,6 +166,7 @@ export default function Servers() {
       hysteria2_port: s.hysteria2_port, reality_port: s.reality_port,
       reality_dest: s.reality_dest, reality_server_name: s.reality_server_name,
       subdomain_prefix: s.subdomain_prefix || '',
+      install_mtproxy: false, mtproxy_port: 443, mtproxy_tls_domain: 'www.google.com',
     })
   }
 
@@ -217,6 +231,34 @@ export default function Servers() {
     setReinstallId(null)
   }
 
+  const handleInstallMtproxy = async () => {
+    if (!mtproxyId) return
+    try {
+      await installMtproxy.mutateAsync({ id: mtproxyId, ...mtproxyForm })
+      toast({ title: 'MTProxy install queued', description: 'Telemt will be installed in the background' })
+    } catch (err: any) {
+      toast({ title: 'Error', description: err.response?.data?.detail || 'Failed', variant: 'destructive' })
+    }
+    setMtproxyId(null)
+  }
+
+  const handleUninstallMtproxy = async () => {
+    if (!uninstallMtproxyId) return
+    try {
+      await uninstallMtproxy.mutateAsync(uninstallMtproxyId)
+      toast({ title: 'MTProxy uninstall queued' })
+    } catch (err: any) {
+      toast({ title: 'Error', description: err.response?.data?.detail || 'Failed', variant: 'destructive' })
+    }
+    setUninstallMtproxyId(null)
+  }
+
+  const copyLink = (link: string, id: string) => {
+    navigator.clipboard.writeText(link)
+    setCopiedLink(id)
+    setTimeout(() => setCopiedLink(null), 2000)
+  }
+
   const handleSync = async (id: string) => {
     try {
       await syncServer.mutateAsync(id)
@@ -262,6 +304,26 @@ export default function Servers() {
             <h3 className="text-lg font-semibold mb-4">Add Server</h3>
             <form onSubmit={handleCreate} className="space-y-3">
               <ServerFormFields f={form} setF={setForm} sshKeys={sshKeys} cfConfigs={cfConfigs} />
+              <div className="border-t border-border/40 pt-3">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input type="checkbox" checked={form.install_mtproxy} onChange={e => setForm({...form, install_mtproxy: e.target.checked})} className="rounded border-border" />
+                  <Send className="w-3.5 h-3.5 text-sky-400" />
+                  <span className="text-sm font-medium">Install MTProxy for Telegram</span>
+                </label>
+                {form.install_mtproxy && (
+                  <div className="grid grid-cols-2 gap-3 mt-2 ml-6">
+                    <div>
+                      <label className="block text-xs font-medium mb-1 text-muted-foreground">Port</label>
+                      <input type="number" value={form.mtproxy_port} onChange={e => setForm({...form, mtproxy_port: +e.target.value})} className="input-glass" />
+                    </div>
+                    <TlsDomainInput
+                      value={form.mtproxy_tls_domain}
+                      onChange={v => setForm({...form, mtproxy_tls_domain: v})}
+                      ip={form.ip || null}
+                    />
+                  </div>
+                )}
+              </div>
               <div className="flex justify-end gap-3 pt-3">
                 <button type="button" onClick={() => setShowAdd(false)} className="btn-ghost">Cancel</button>
                 <button type="submit" disabled={createServer.isPending} className="btn-primary">
@@ -346,6 +408,26 @@ export default function Servers() {
                   <input value={batchForm.reality_server_name} onChange={e => setBatchForm({...batchForm, reality_server_name: e.target.value})} className="input-glass font-mono" />
                 </div>
               </div>
+              <div className="border-t border-border/40 pt-3">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input type="checkbox" checked={batchForm.install_mtproxy} onChange={e => setBatchForm({...batchForm, install_mtproxy: e.target.checked})} className="rounded border-border" />
+                  <Send className="w-3.5 h-3.5 text-sky-400" />
+                  <span className="text-sm font-medium">Install MTProxy for Telegram</span>
+                </label>
+                {batchForm.install_mtproxy && (
+                  <div className="grid grid-cols-2 gap-3 mt-2 ml-6">
+                    <div>
+                      <label className="block text-xs font-medium mb-1 text-muted-foreground">Port</label>
+                      <input type="number" value={batchForm.mtproxy_port} onChange={e => setBatchForm({...batchForm, mtproxy_port: +e.target.value})} className="input-glass" />
+                    </div>
+                    <TlsDomainInput
+                      value={batchForm.mtproxy_tls_domain}
+                      onChange={v => setBatchForm({...batchForm, mtproxy_tls_domain: v})}
+                      ip={parsedIps[0] || null}
+                    />
+                  </div>
+                )}
+              </div>
               <div className="flex justify-end gap-3 pt-3">
                 <button type="button" onClick={() => setShowBatch(false)} className="btn-ghost">Cancel</button>
                 <button type="submit" disabled={batchCreate.isPending || parsedIps.length === 0} className="btn-primary">
@@ -387,6 +469,7 @@ export default function Servers() {
                 <th>Name</th>
                 <th>IP / FQDN</th>
                 <th>Ports</th>
+                <th>MTProxy</th>
                 <th>Status</th>
                 <th>Last Check</th>
                 <th className="text-right">Actions</th>
@@ -412,6 +495,41 @@ export default function Servers() {
                       <div>Hy2: {s.hysteria2_port}/udp</div>
                       <div>VLESS: {s.reality_port}/tcp</div>
                     </td>
+                    <td>
+                      {s.mtproxy_enabled ? (
+                        <div className="flex items-center gap-1.5">
+                          <span className="inline-flex items-center gap-1 text-xs font-medium text-sky-400">
+                            <Send className="w-3 h-3" />
+                            :{s.mtproxy_port}
+                          </span>
+                          {s.mtproxy_link && (
+                            <button
+                              onClick={() => copyLink(s.mtproxy_link!, s.id)}
+                              className="p-1 rounded hover:bg-accent transition-colors"
+                              title="Copy tg:// link"
+                            >
+                              {copiedLink === s.id ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3 text-muted-foreground" />}
+                            </button>
+                          )}
+                          <button
+                            onClick={() => setUninstallMtproxyId(s.id)}
+                            className="p-1 rounded hover:bg-red-500/10 transition-colors"
+                            title="Uninstall MTProxy"
+                          >
+                            <X className="w-3 h-3 text-red-400/60 hover:text-red-400" />
+                          </button>
+                        </div>
+                      ) : s.status === 'online' ? (
+                        <button
+                          onClick={() => { setMtproxyId(s.id); setMtproxyForm({ port: 443, tls_domain: 'www.google.com' }) }}
+                          className="text-xs px-2 py-0.5 rounded border border-sky-600/30 text-sky-400/70 hover:text-sky-400 hover:bg-sky-500/10 transition-all"
+                        >
+                          Install
+                        </button>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">—</span>
+                      )}
+                    </td>
                     <td><StatusBadge status={s.status} message={s.status_message} /></td>
                     <td className="text-muted-foreground text-xs">
                       {s.last_health_check ? formatRelativeTime(s.last_health_check) : '-'}
@@ -426,7 +544,7 @@ export default function Servers() {
                   </tr>
                   {(s.status === 'error' || s.status === 'offline') && s.status_message && (
                     <tr className="!border-b-0">
-                      <td colSpan={6} className="!pt-0 !pb-2">
+                      <td colSpan={7} className="!pt-0 !pb-2">
                         <div className="rounded-md bg-red-500/5 border border-red-500/15 px-3 py-2 mt-1">
                           <div className="flex items-start justify-between gap-2">
                             <div className="flex-1 min-w-0">
@@ -466,7 +584,7 @@ export default function Servers() {
                 </Fragment>
               ))}
               {servers?.length === 0 && (
-                <tr><td colSpan={6} className="px-4 py-12 text-center text-muted-foreground">No servers yet</td></tr>
+                <tr><td colSpan={7} className="px-4 py-12 text-center text-muted-foreground">No servers yet</td></tr>
               )}
             </tbody>
           </table>
@@ -522,6 +640,53 @@ export default function Servers() {
         loading={reinstallServer.isPending}
         onConfirm={handleReinstall}
         onCancel={() => setReinstallId(null)}
+      />
+
+      {/* MTProxy Install Modal */}
+      {mtproxyId && (
+        <div className="modal-overlay">
+          <div className="modal-backdrop" onClick={() => setMtproxyId(null)} />
+          <div className="modal-content max-w-md p-6">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-9 h-9 rounded-lg bg-sky-500/10 flex items-center justify-center flex-none">
+                <Send className="w-4.5 h-4.5 text-sky-400" />
+              </div>
+              <div>
+                <h3 className="text-lg font-semibold">Install MTProxy</h3>
+                <p className="text-xs text-muted-foreground">Telemt with fake-TLS masking (maximum security)</p>
+              </div>
+            </div>
+            <div className="space-y-3">
+              <div>
+                <label className="block text-xs font-medium mb-1 text-muted-foreground">Port</label>
+                <input type="number" value={mtproxyForm.port} onChange={e => setMtproxyForm({...mtproxyForm, port: +e.target.value})} className="input-glass" />
+                <p className="text-xs text-muted-foreground mt-0.5 opacity-60">443 recommended for censorship resistance</p>
+              </div>
+              <TlsDomainInput
+                value={mtproxyForm.tls_domain}
+                onChange={v => setMtproxyForm({...mtproxyForm, tls_domain: v})}
+                ip={servers?.find(s => s.id === mtproxyId)?.ip || null}
+              />
+            </div>
+            <div className="flex justify-end gap-3 pt-4">
+              <button onClick={() => setMtproxyId(null)} className="btn-ghost">Cancel</button>
+              <button onClick={handleInstallMtproxy} disabled={installMtproxy.isPending} className="px-4 py-2 text-sm rounded-lg font-semibold bg-sky-600 hover:bg-sky-500 text-white transition-all disabled:opacity-50">
+                {installMtproxy.isPending ? 'Installing...' : 'Install'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <ConfirmDialog
+        open={!!uninstallMtproxyId}
+        title="Uninstall MTProxy"
+        description="This will stop and remove telemt from the server. Existing tg:// links will stop working."
+        confirmText="Uninstall"
+        destructive
+        loading={uninstallMtproxy.isPending}
+        onConfirm={handleUninstallMtproxy}
+        onCancel={() => setUninstallMtproxyId(null)}
       />
 
       {deleteId && (

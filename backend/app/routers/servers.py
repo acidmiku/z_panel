@@ -9,7 +9,7 @@ from arq.connections import RedisSettings
 
 from app.database import get_db
 from app.models import Server, CloudflareConfig, SSHKey, AdminUser, ServerTrafficSnapshot
-from app.schemas import ServerCreate, ServerBatchCreate, ServerUpdate, ServerResponse
+from app.schemas import ServerCreate, ServerBatchCreate, ServerUpdate, ServerResponse, MtproxyInstallRequest
 from app.deps import get_current_user
 from app.services.cloudflare import delete_dns_record
 from app.services.crypto import decrypt
@@ -60,6 +60,8 @@ async def add_server(
         reality_dest=body.reality_dest,
         reality_server_name=body.reality_server_name,
         subdomain_prefix=body.subdomain_prefix,
+        mtproxy_tls_domain=body.mtproxy_tls_domain if body.install_mtproxy else None,
+        mtproxy_port=body.mtproxy_port if body.install_mtproxy else None,
         status="provisioning",
     )
     db.add(server)
@@ -106,6 +108,8 @@ async def batch_add_servers(
             reality_dest=body.reality_dest,
             reality_server_name=body.reality_server_name,
             subdomain_prefix=body.subdomain_prefix,
+            mtproxy_tls_domain=body.mtproxy_tls_domain if body.install_mtproxy else None,
+            mtproxy_port=body.mtproxy_port if body.install_mtproxy else None,
             status="provisioning",
         )
         db.add(server)
@@ -303,6 +307,52 @@ async def get_traffic_history(
         })
 
     return {"server_id": server_id, "rates": rates}
+
+
+@router.post("/{server_id}/install-mtproxy")
+async def install_mtproxy(
+    server_id: str,
+    body: MtproxyInstallRequest,
+    db: AsyncSession = Depends(get_db),
+    _: AdminUser = Depends(get_current_user),
+):
+    result = await db.execute(select(Server).where(Server.id == server_id))
+    server = result.scalar_one_or_none()
+    if not server:
+        raise HTTPException(status_code=404, detail="Server not found")
+
+    if server.mtproxy_enabled:
+        raise HTTPException(status_code=400, detail="MTProxy is already installed")
+
+    if server.status not in ("online", "error"):
+        raise HTTPException(status_code=400, detail=f"Server must be online (current: {server.status})")
+
+    pool = await _get_arq_pool()
+    await pool.enqueue_job("task_install_mtproxy_server", str(server.id), body.port, body.tls_domain)
+    await pool.close()
+
+    return {"message": "MTProxy installation queued"}
+
+
+@router.delete("/{server_id}/uninstall-mtproxy")
+async def uninstall_mtproxy(
+    server_id: str,
+    db: AsyncSession = Depends(get_db),
+    _: AdminUser = Depends(get_current_user),
+):
+    result = await db.execute(select(Server).where(Server.id == server_id))
+    server = result.scalar_one_or_none()
+    if not server:
+        raise HTTPException(status_code=404, detail="Server not found")
+
+    if not server.mtproxy_enabled:
+        raise HTTPException(status_code=400, detail="MTProxy is not installed")
+
+    pool = await _get_arq_pool()
+    await pool.enqueue_job("task_uninstall_mtproxy_server", str(server.id))
+    await pool.close()
+
+    return {"message": "MTProxy uninstall queued"}
 
 
 @router.get("/{server_id}/logs")

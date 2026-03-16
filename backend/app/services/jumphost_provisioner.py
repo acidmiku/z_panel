@@ -236,12 +236,30 @@ async def _do_provision(jumphost, ssh_key, users):
     except Exception as e:
         logger.error(f"[{jumphost.name}] Hardening failed (sing-box still running): {e}")
 
+    # Install MTProxy (telemt) if requested during creation
+    async with AsyncSessionLocal() as db:
+        result = await db.execute(select(Jumphost).where(Jumphost.id == jumphost.id))
+        jh = result.scalar_one()
+        wants_mtproxy = jh.mtproxy_tls_domain and not jh.mtproxy_enabled
+
+    if wants_mtproxy:
+        try:
+            await _set_progress(jid, "Installing MTProxy…")
+            from app.services.telemt_installer import install_mtproxy_on_jumphost
+            await install_mtproxy_on_jumphost(
+                str(jumphost.id),
+                mtproxy_port=jh.mtproxy_port or 443,
+                tls_domain=jh.mtproxy_tls_domain,
+            )
+        except Exception as e:
+            logger.error(f"[{jumphost.name}] MTProxy install failed (sing-box still running): {e}")
+
     # Mark as online
     async with AsyncSessionLocal() as db:
         result = await db.execute(select(Jumphost).where(Jumphost.id == jumphost.id))
         jh = result.scalar_one()
         jh.status = "online"
-        if not jh.status_message or jh.status_message.startswith("Hardening"):
+        if not jh.status_message or jh.status_message.startswith(("Hardening", "MTProxy", "Installing")):
             jh.status_message = None
         await db.commit()
 

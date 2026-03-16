@@ -4,7 +4,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
-from app.routers import auth, servers, users, profiles, stats, cloudflare_configs, ssh_keys, jumphosts, routing, chain_configs
+from app.routers import auth, servers, users, profiles, stats, cloudflare_configs, ssh_keys, jumphosts, routing, chain_configs, utils
 
 
 @asynccontextmanager
@@ -34,6 +34,7 @@ app.include_router(ssh_keys.router, prefix="/api/ssh-keys", tags=["ssh-keys"])
 app.include_router(jumphosts.router, prefix="/api/jumphosts", tags=["jumphosts"])
 app.include_router(routing.router, prefix="/api/routing", tags=["routing"])
 app.include_router(chain_configs.router, prefix="/api/chain-configs", tags=["chain-configs"])
+app.include_router(utils.router, prefix="/api/utils", tags=["utils"])
 
 
 @app.get("/api/health")
